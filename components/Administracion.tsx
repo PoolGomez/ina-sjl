@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -28,11 +28,11 @@ import {
   ToggleLeft,
   ToggleRight,
   X,
+  Search,
 } from 'lucide-react';
 import { Modal } from './Modal';
 import { LoadingSpinner } from './LoadingSpinner';
 import {
-  ViandaProducto,
   ViandaProducto,
   ConfiguracionEvento,
   TarjetaBingoPrecioConfig,
@@ -68,6 +68,8 @@ import { useAuth } from '../lib/authContext';
 interface AdministracionProps {
   config: ConfiguracionEvento;
   onConfigUpdated: (newConfig: ConfiguracionEvento) => void;
+  activeSubTab?: SubTab;
+  onSubTabChange?: (sub: SubTab) => void;
 }
 
 type SubTab = 'viandas' | 'bingo' | 'evento' | 'impresion' | 'metricas' | 'pagos' | 'usuarios';
@@ -124,11 +126,33 @@ const ROLE_CONFIG: Record<UserRole, { label: string; color: string; description:
   visor: { label: 'Visor', color: 'blue', description: 'Consulta y verificación solamente' },
 };
 
-export const Administracion: React.FC<AdministracionProps> = ({ config, onConfigUpdated }) => {
-  const { user, signUp } = useAuth();
-  const isSuperAdmin = user?.isSuperAdmin ?? false;
+const VALID_SUBTABS: SubTab[] = ['viandas', 'bingo', 'evento', 'impresion', 'pagos', 'metricas', 'usuarios'];
 
-  const [subTab, setSubTab] = useState<SubTab>('viandas');
+export const Administracion: React.FC<AdministracionProps> = ({
+  config,
+  onConfigUpdated,
+  activeSubTab,
+  onSubTabChange,
+}) => {
+  const { user, signUp } = useAuth();
+  const isSuperAdmin = Boolean(
+    user?.isSuperAdmin ||
+      user?.role === 'admin' ||
+      user?.permisos?.puedeAdministrar
+  );
+
+  const [subTab, setSubTab] = useState<SubTab>(activeSubTab || 'viandas');
+
+  useEffect(() => {
+    if (activeSubTab && VALID_SUBTABS.includes(activeSubTab)) {
+      setSubTab(activeSubTab);
+    }
+  }, [activeSubTab]);
+
+  // Search states for Administration modules
+  const [searchVianda, setSearchVianda] = useState('');
+  const [searchModalidad, setSearchModalidad] = useState('');
+  const [searchUsuario, setSearchUsuario] = useState('');
 
   // Modal visibility states
   const [isViandaModalOpen, setIsViandaModalOpen] = useState(false);
@@ -142,14 +166,14 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
   }>({
     isOpen: false,
     message: '',
-    onConfirm: () => {},
+    onConfirm: () => { },
   });
 
   // Confirmation modal component
   const ConfirmationModal = () => (
     <Modal
       isOpen={confirmationModal.isOpen}
-      onClose={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
+      onClose={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => { } })}
       title="Confirmar Acción"
       size="sm"
     >
@@ -159,7 +183,7 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
         </p>
         <div className="flex justify-center gap-3">
           <button
-            onClick={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
+            onClick={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => { } })}
             className="px-4 py-2 text-xs font-bold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 transition"
           >
             Cancelar
@@ -167,7 +191,7 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
           <button
             onClick={() => {
               confirmationModal.onConfirm();
-              setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+              setConfirmationModal({ isOpen: false, message: '', onConfirm: () => { } });
             }}
             className="px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 text-white hover:bg-rose-500 transition shadow-lg shadow-rose-600/20"
           >
@@ -291,7 +315,8 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
 
     setIsSavingModalidad(true);
     try {
-      const id = editingModalidadId || mpNombre.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') + '_' + Date.now();
+      // const id = editingModalidadId || mpNombre.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') + '_' + Date.now();
+      const id = editingModalidadId || mpNombre.toLowerCase();
       const modalidad: ModalidadPagoConfig = {
         id,
         nombre: mpNombre.trim(),
@@ -320,7 +345,7 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
         await deleteModalidadPago(id);
         await loadData();
         showNotice(`Modalidad "${nombre}" eliminada.`);
-        setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+        setConfirmationModal({ isOpen: false, message: '', onConfirm: () => { } });
       },
     });
   };
@@ -397,9 +422,9 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
         etiquetaPrecio1: vEtiqueta1.trim() || 'General',
         ...(vTieneDosPrecios
           ? {
-              precio2: parseFloat(String(vPrecio2)) || 0,
-              etiquetaPrecio2: vEtiqueta2.trim() || 'Socio',
-            }
+            precio2: parseFloat(String(vPrecio2)) || 0,
+            etiquetaPrecio2: vEtiqueta2.trim() || 'Socio',
+          }
           : {}),
         activo: vActivo,
       };
@@ -423,7 +448,7 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
         await deleteViandaProducto(id);
         await loadData();
         showNotice('Vianda eliminada del catálogo.');
-        setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+        setConfirmationModal({ isOpen: false, message: '', onConfirm: () => { } });
       },
     });
   };
@@ -532,7 +557,10 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
   const handleStartEditUser = (profile: AppUserProfile) => {
     setEditingUserId(profile.uid);
     setEditUserRole(profile.role);
-    setEditUserPermisos(profile.permisos);
+    setEditUserPermisos({
+      ...DEFAULT_PERMISOS_BY_ROLE[profile.role],
+      ...(profile.permisos || {}),
+    });
     setIsUserEditModalOpen(true);
   };
 
@@ -552,6 +580,7 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
   const handleDeleteUser = async (uid: string, email: string) => {
     if (!isSuperAdmin) return;
     setConfirmationModal({
+      isOpen: true,
       message: `¿Seguro que deseas eliminar el perfil de ${email}? Esta acción no elimina la cuenta de Firebase Auth.`,
       onConfirm: async () => {
         await deleteUserProfile(uid);
@@ -628,6 +657,12 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
   };
 
   const permKey: (keyof UserPermissions)[] = [
+    'puedeGestionarMembresia',
+    'puedeGestionarSedes',
+    'puedeGestionarGrupos',
+    'puedeGestionarMinisterios',
+    'puedeRegistrarAsistencia',
+    'puedeVerMetricasIglesia',
     'puedeVenderViandas',
     'puedeVenderBingo',
     'puedeVerSorteos',
@@ -636,12 +671,18 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
     'puedeVerMetricas',
   ];
   const permLabels: Record<keyof UserPermissions, string> = {
+    puedeGestionarMembresia: 'Gestionar Membresía (Miembros)',
+    puedeGestionarSedes: 'Gestionar Sedes y Ubicaciones',
+    puedeGestionarGrupos: 'Gestionar Grupos de la Iglesia',
+    puedeGestionarMinisterios: 'Gestionar Ministerios',
+    puedeRegistrarAsistencia: 'Registrar Asistencia',
+    puedeVerMetricasIglesia: 'Ver Métricas de Asistencia',
     puedeVenderViandas: 'Vender Viandas',
     puedeVenderBingo: 'Vender Bingo',
     puedeVerSorteos: 'Ver Sorteos',
     puedeVerificacion: 'Verificación',
-    puedeAdministrar: 'Administrar',
-    puedeVerMetricas: 'Ver Métricas',
+    puedeAdministrar: 'Administrar Eventos',
+    puedeVerMetricas: 'Ver Métricas de Eventos',
   };
 
   return (
@@ -650,29 +691,43 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-800">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-white text-xs font-bold mb-2">
-            <Settings className="w-3.5 h-3.5" /> Panel Maestro de Control
+            {subTab === 'usuarios' ? (
+              <>
+                <ShieldCheck className="w-3.5 h-3.5 text-rose-400" /> Gestión de Iglesia INA
+              </>
+            ) : (
+              <>
+                <Settings className="w-3.5 h-3.5" /> Administración de Eventos
+              </>
+            )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-            Administración y Configuración
+            {subTab === 'usuarios'
+              ? 'Usuarios y Permisos'
+              : 'Administración y Configuración'}
           </h1>
           <p className="text-white/70 text-sm mt-1 max-w-xl">
-            Gestiona viandas, bingo, configuración de evento, modalidades de pago, métricas financieras y usuarios.
+            {subTab === 'usuarios'
+              ? 'Gestiona las cuentas de acceso, roles y permisos para los módulos de Iglesia INA y Eventos.'
+              : 'Gestiona viandas, precios de bingo, configuración del evento, impresión, modalidades de pago y métricas financieras.'}
           </p>
-          {isSuperAdmin && (
+          {user?.isSuperAdmin && (
             <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-bold">
               <ShieldCheck className="w-3.5 h-3.5" /> Super Administrador
             </div>
           )}
         </div>
 
-        <div className="flex gap-2">
-          <button
-            onClick={handleExportJSON}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold flex items-center gap-2 transition"
-          >
-            <Download className="w-4 h-4 text-amber-400" /> Respaldar Datos JSON
-          </button>
-        </div>
+        {subTab !== 'usuarios' && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportJSON}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold flex items-center gap-2 transition"
+            >
+              <Download className="w-4 h-4 text-amber-400" /> Respaldar Datos JSON
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Notice Message */}
@@ -683,107 +738,170 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
         </div>
       )}
 
-      {/* Sub-tabs navigation */}
-      <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-200 dark:border-slate-800">
-        <button
-          onClick={() => setSubTab('viandas')}
-          className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 whitespace-nowrap ${
-            subTab === 'viandas'
-              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <UtensilsCrossed className="w-4 h-4" /> Viandas y Precios
-        </button>
-
-        <button
-          onClick={() => setSubTab('bingo')}
-          className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 whitespace-nowrap ${
-            subTab === 'bingo'
-              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <Ticket className="w-4 h-4" /> Precios de Bingo
-        </button>
-
-        <button
-          onClick={() => setSubTab('evento')}
-          className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 whitespace-nowrap ${
-            subTab === 'evento'
-              ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <Settings className="w-4 h-4" /> Datos del Evento
-        </button>
-
-        <button
-          onClick={() => setSubTab('impresion')}
-          className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 whitespace-nowrap ${
-            subTab === 'impresion'
-              ? 'bg-teal-600 text-white shadow-md shadow-teal-600/20'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <Printer className="w-4 h-4" /> Opciones de Impresión
-        </button>
-
-        <button
-          onClick={() => setSubTab('pagos')}
-          className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 whitespace-nowrap ${
-            subTab === 'pagos'
-              ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <CreditCard className="w-4 h-4" /> Modalidades de Pago
-        </button>
-
-        <button
-          onClick={() => setSubTab('metricas')}
-          className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 whitespace-nowrap ${
-            subTab === 'metricas'
-              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <TrendingUp className="w-4 h-4" /> Métricas Financieras
-        </button>
-
-        {isSuperAdmin && (
-          <button
-            onClick={() => setSubTab('usuarios')}
-            className={`px-4 py-2 text-xs font-black rounded-xl transition flex items-center gap-2 whitespace-nowrap ${
-              subTab === 'usuarios'
-                ? 'bg-rose-700 text-white shadow-md shadow-rose-700/20'
-                : 'bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4" /> Usuarios & Permisos
-          </button>
-        )}
-      </div>
-
       {/* TAB 1: VIANDAS Y PRECIOS CON DECIMALES */}
-      {subTab === 'viandas' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Create / Edit Form */}
-          <div className="lg:col-span-5">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xl sticky top-24">
-              <h3 className="font-extrabold text-slate-900 dark:text-white text-base pb-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <span>{editingViandaId ? 'Editar Vianda' : 'Registrar Nueva Vianda'}</span>
-                {editingViandaId && (
-                  <button
-                    onClick={resetViandaForm}
-                    className="text-xs text-slate-400 hover:text-slate-600"
-                  >
-                    Cancelar edición
-                  </button>
-                )}
-              </h3>
+      {subTab === 'viandas' && (() => {
+        const q = searchVianda.trim().toLowerCase();
+        const filteredViandas = q
+          ? viandas.filter(
+            (v) =>
+              v.nombre.toLowerCase().includes(q) ||
+              (v.descripcion || '').toLowerCase().includes(q) ||
+              (v.categoria || '').toLowerCase().includes(q) ||
+              (v.etiquetaPrecio1 || '').toLowerCase().includes(q) ||
+              (v.etiquetaPrecio2 || '').toLowerCase().includes(q)
+          )
+          : viandas;
 
-              <form onSubmit={handleSaveVianda} className="mt-4 space-y-4 text-xs">
+        return (
+          <div className="space-y-5">
+            {/* Header Bar: Title + Search Input + Add Button */}
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                  <UtensilsCrossed className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
+                    Catálogo de Viandas ({filteredViandas.length}{q ? ` de ${viandas.length}` : ''})
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Gestiona los platos, bebidas y combos disponibles para la venta
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:w-auto w-full">
+                {/* Search Input */}
+                <div className="relative flex-1 sm:w-72">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchVianda}
+                    onChange={(e) => setSearchVianda(e.target.value)}
+                    placeholder="Buscar vianda, categoría..."
+                    className="w-full pl-9 pr-8 py-2.5 text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                  />
+                  {searchVianda && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchVianda('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      aria-label="Limpiar búsqueda"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Open Modal Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetViandaForm();
+                    setIsViandaModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black rounded-xl shadow-md shadow-amber-500/20 transition flex items-center justify-center gap-2 text-xs whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nueva Vianda
+                </button>
+              </div>
+            </div>
+
+            {/* List of Viandas */}
+            {filteredViandas.length === 0 ? (
+              <div className="text-center py-14 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
+                <UtensilsCrossed className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-600 dark:text-slate-300 font-bold text-sm">
+                  {q ? `No se encontraron viandas para "${searchVianda}"` : 'No hay viandas registradas aún.'}
+                </p>
+                <p className="text-slate-400 text-xs mt-1">
+                  {q ? 'Intenta con otro término de búsqueda.' : 'Haz clic en "Nueva Vianda" para registrar el primer plato.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredViandas.map((v) => (
+                  <div
+                    key={v.id}
+                    className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between gap-3 hover:border-amber-500/40 transition"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">
+                            {v.nombre}
+                          </h4>
+                          {v.categoria && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                              {v.categoria}
+                            </span>
+                          )}
+                          {v.tieneDosPrecios ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300">
+                              2 Precios
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                              1 Precio
+                            </span>
+                          )}
+                          {!v.activo && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                              Inactivo
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => handleEditVianda(v)}
+                            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 rounded-lg transition"
+                            title="Editar"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteVianda(v.id)}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {v.descripcion && (
+                        <p className="text-xs text-slate-500 mt-1.5 line-clamp-2">{v.descripcion}</p>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap gap-2 text-xs">
+                      <div className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 rounded-lg border border-amber-200 dark:border-amber-900 text-amber-900 dark:text-amber-200 font-bold">
+                        {v.etiquetaPrecio1}: {formatPrecio(v.precio1)}
+                      </div>
+                      {v.tieneDosPrecios && v.precio2 !== undefined && (
+                        <div className="px-2.5 py-1 bg-orange-50 dark:bg-orange-950/40 rounded-lg border border-orange-200 dark:border-orange-900 text-orange-900 dark:text-orange-200 font-bold">
+                          {v.etiquetaPrecio2}: {formatPrecio(v.precio2)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Modal: Create / Edit Vianda */}
+            <Modal
+              isOpen={isViandaModalOpen}
+              onClose={() => {
+                setIsViandaModalOpen(false);
+                resetViandaForm();
+              }}
+              title={editingViandaId ? 'Editar Vianda' : 'Registrar Nueva Vianda'}
+              size="md"
+            >
+              <form onSubmit={handleSaveVianda} className="space-y-4 text-xs">
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Nombre del Plato / Producto *
@@ -931,91 +1049,35 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
                   </label>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={isSavingVianda}
-                  className="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm mt-3 disabled:opacity-50"
-                >
-                  {isSavingVianda ? (
-                    <LoadingSpinner size="sm" color="text-slate-950" />
-                  ) : (
-                    <Save className="w-4 h-4" />
-                  )}
-                  {editingViandaId ? 'Guardar Cambios' : 'Registrar Vianda'}
-                </button>
-              </form>
-            </div>
-          </div>
-
-          {/* List of Viandas */}
-          <div className="lg:col-span-7 space-y-3">
-            <h3 className="font-bold text-slate-800 dark:text-slate-200 text-sm">
-              Catálogo de Viandas Registradas ({viandas.length})
-            </h3>
-            <div className="grid grid-cols-1 gap-3">
-              {viandas.map((v) => (
-                <div
-                  key={v.id}
-                  className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-start justify-between gap-4"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                        {v.nombre}
-                      </h4>
-                      {v.tieneDosPrecios ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300">
-                          2 Precios
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600">
-                          1 Precio
-                        </span>
-                      )}
-                      {!v.activo && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
-                          Inactivo
-                        </span>
-                      )}
-                    </div>
-                    {v.descripcion && (
-                      <p className="text-xs text-slate-500 mt-1">{v.descripcion}</p>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsViandaModalOpen(false);
+                      resetViandaForm();
+                    }}
+                    className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs hover:bg-slate-200 transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingVianda}
+                    className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                  >
+                    {isSavingVianda ? (
+                      <LoadingSpinner size="sm" color="text-slate-950" />
+                    ) : (
+                      <Save className="w-4 h-4" />
                     )}
-
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                      <div className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 rounded-lg border border-amber-200 dark:border-amber-900 text-amber-900 dark:text-amber-200 font-bold">
-                        {v.etiquetaPrecio1}: {formatPrecio(v.precio1)}
-                      </div>
-                      {v.tieneDosPrecios && v.precio2 !== undefined && (
-                        <div className="px-2.5 py-1 bg-orange-50 dark:bg-orange-950/40 rounded-lg border border-orange-200 dark:border-orange-900 text-orange-900 dark:text-orange-200 font-bold">
-                          {v.etiquetaPrecio2}: {formatPrecio(v.precio2)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleEditVianda(v)}
-                      className="p-2 text-slate-400 hover:text-amber-600 transition"
-                      title="Editar"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteVianda(v.id)}
-                      className="p-2 text-slate-400 hover:text-rose-600 transition"
-                      title="Eliminar"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                    {editingViandaId ? 'Guardar Cambios' : 'Registrar Vianda'}
+                  </button>
                 </div>
-              ))}
-            </div>
+              </form>
+            </Modal>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB 2: PRECIOS DE BINGO */}
       {subTab === 'bingo' && (
@@ -1354,7 +1416,7 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
 
           {/* Ticket Preview */}
           <div className="lg:col-span-5">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xl sticky top-24">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-xl lg:sticky lg:top-20">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <span className="text-xs font-black uppercase text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <Eye className="w-4 h-4 text-teal-500" />
@@ -1458,300 +1520,357 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
       )}
 
       {/* TAB 5: MODALIDADES DE PAGO - GESTIÓN COMPLETA */}
-      {subTab === 'pagos' && (
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-rose-600 via-pink-600 to-fuchsia-700 rounded-3xl p-6 sm:p-8 text-white shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
-                  <CreditCard className="w-6 h-6" />
+      {subTab === 'pagos' && (() => {
+        const q = searchModalidad.trim().toLowerCase();
+        const filteredModalidades = q
+          ? modalidades.filter(
+            (m) =>
+              m.nombre.toLowerCase().includes(q) ||
+              (m.descripcion || '').toLowerCase().includes(q) ||
+              m.id.toLowerCase().includes(q)
+          )
+          : modalidades;
+
+        return (
+          <div className="space-y-5">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-rose-600 via-pink-600 to-fuchsia-700 rounded-3xl p-6 sm:p-8 text-white shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner flex-shrink-0">
+                    <CreditCard className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-xl sm:text-2xl">Gestión de Modalidades de Pago</h3>
+                    <p className="text-white/70 text-sm mt-0.5">
+                      Agrega, edita, activa o desactiva los métodos de cobro disponibles en el sistema.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-black text-xl sm:text-2xl">Gestión de Modalidades de Pago</h3>
-                  <p className="text-white/70 text-sm mt-0.5">
-                    Agrega, edita, activa o desactiva los métodos de cobro disponibles en el sistema.
-                  </p>
+                <div className="flex items-center gap-2 text-sm flex-wrap">
+                  <span className="px-3 py-1.5 rounded-full bg-white/15 font-bold">
+                    {modalidades.filter(m => m.activo).length} activas
+                  </span>
+                  <span className="px-3 py-1.5 rounded-full bg-white/10 text-white/70 font-bold">
+                    {modalidades.filter(m => !m.activo).length} inactivas
+                  </span>
                 </div>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="px-3 py-1.5 rounded-full bg-white/15 font-bold">
-                  {modalidades.filter(m => m.activo).length} activas
-                </span>
-                <span className="px-3 py-1.5 rounded-full bg-white/10 text-white/70 font-bold">
-                  {modalidades.filter(m => !m.activo).length} inactivas
-                </span>
               </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Form: Create / Edit */}
-            <div className="lg:col-span-5">
-              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xl sticky top-24">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                    {editingModalidadId ? <Edit2 className="w-4 h-4 text-rose-500" /> : <Plus className="w-4 h-4 text-rose-500" />}
-                    {editingModalidadId ? 'Editar Modalidad' : 'Nueva Modalidad de Pago'}
-                  </h3>
-                  {editingModalidadId && (
+            {/* Action Bar: Title + Search Input + Add Modalidad Button */}
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-rose-500" />
+                  Modalidades Configuradas ({filteredModalidades.length}{q ? ` de ${modalidades.length}` : ''})
+                </h3>
+                <p className="text-xs text-slate-500">Ordenadas por prioridad de aparición</p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:w-auto w-full">
+                {/* Search Input */}
+                <div className="relative flex-1 sm:w-72">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchModalidad}
+                    onChange={(e) => setSearchModalidad(e.target.value)}
+                    placeholder="Buscar modalidad de pago..."
+                    className="w-full pl-9 pr-8 py-2.5 text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/40"
+                  />
+                  {searchModalidad && (
                     <button
-                      onClick={resetModalidadForm}
-                      className="p-1.5 text-slate-400 hover:text-rose-500 transition rounded-lg"
+                      type="button"
+                      onClick={() => setSearchModalidad('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      aria-label="Limpiar búsqueda"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
 
-                <form onSubmit={handleSaveModalidad} className="mt-5 space-y-4 text-xs">
-                  {/* Nombre */}
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Nombre de la Modalidad *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={mpNombre}
-                      onChange={(e) => setMpNombre(e.target.value)}
-                      placeholder="Ej. Mercado Pago, Efectivo, MODO..."
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
-                    />
-                  </div>
-
-                  {/* Descripción */}
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Descripción / Instrucciones (opcional)
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={mpDescripcion}
-                      onChange={(e) => setMpDescripcion(e.target.value)}
-                      placeholder="Ej. Pago mediante transferencia CBU 123456..."
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl resize-none"
-                    />
-                  </div>
-
-                  {/* Icono y orden en la misma fila */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Ícono / Emoji *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={mpIcono}
-                        onChange={(e) => setMpIcono(e.target.value)}
-                        placeholder="💳"
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-center text-xl"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Orden de Aparición
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="99"
-                        value={mpOrden}
-                        onChange={(e) => setMpOrden(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-center"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Color selector */}
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-2">
-                      Color / Tema Visual
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {COLOR_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.color}
-                          type="button"
-                          onClick={() => { setMpColor(opt.color); setMpGradient(opt.gradient); }}
-                          className={`flex flex-col items-center gap-1 p-2 rounded-xl border-2 transition ${
-                            mpColor === opt.color
-                              ? 'border-rose-500 bg-rose-50 dark:bg-rose-950/30 scale-105'
-                              : 'border-slate-200 dark:border-slate-700 hover:border-slate-400'
-                          }`}
-                        >
-                          <div
-                            className="w-6 h-6 rounded-full shadow"
-                            style={{ background: opt.preview }}
-                          />
-                          <span className="text-[9px] font-bold text-slate-600 dark:text-slate-400">{opt.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Preview */}
-                  <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                    <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider block mb-2">Vista previa</span>
-                    <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r ${mpGradient} text-white shadow-lg`}>
-                      <span className="text-lg">{mpIcono || '💳'}</span>
-                      <span className="font-black text-sm">{mpNombre || 'Modalidad'}</span>
-                    </div>
-                  </div>
-
-                  {/* Estado activo */}
-                  <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-                    <div>
-                      <span className="font-bold text-slate-800 dark:text-slate-200 block">Disponible para usar</span>
-                      <span className="text-[10px] text-slate-500">Los vendedores podrán seleccionar esta modalidad</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setMpActivo(!mpActivo)}
-                      className="flex-shrink-0"
-                    >
-                      {mpActivo
-                        ? <ToggleRight className="w-8 h-8 text-emerald-500" />
-                        : <ToggleLeft className="w-8 h-8 text-slate-400" />
-                      }
-                    </button>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-gradient-to-r from-rose-600 to-pink-600 text-white font-black rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm hover:from-rose-500 hover:to-pink-500"
-                  >
-                    <Save className="w-4 h-4" />
-                    {editingModalidadId ? 'Guardar Cambios' : 'Agregar Modalidad'}
-                  </button>
-                </form>
+                {/* Open Modal Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetModalidadForm();
+                    setIsModalidadModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-black rounded-xl shadow-md shadow-rose-600/20 transition flex items-center justify-center gap-2 text-xs whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nueva Modalidad
+                </button>
               </div>
             </div>
 
             {/* List of payment methods */}
-            <div className="lg:col-span-7 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-800 dark:text-slate-200 text-sm flex items-center gap-2">
-                  <CreditCard className="w-4 h-4" />
-                  Modalidades Configuradas ({modalidades.length})
-                </h3>
-                <span className="text-xs text-slate-500">Ordenadas por prioridad de aparición</span>
+            {filteredModalidades.length === 0 ? (
+              <div className="text-center py-14 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
+                <CreditCard className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-600 dark:text-slate-300 font-bold text-sm">
+                  {q ? `No se encontraron modalidades para "${searchModalidad}"` : 'No hay modalidades configuradas.'}
+                </p>
+                <p className="text-slate-400 text-xs mt-1">
+                  {q ? 'Intenta con otro término de búsqueda.' : 'Haz clic en "Nueva Modalidad" para agregar la primera.'}
+                </p>
               </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredModalidades.map((m) => {
+                  const vTotal = ticketsViandas.filter((t) => t.modalidadPago === m.id).reduce((a, t) => a + t.total, 0);
+                  const bTotal = tarjetasBingo.filter((t) => t.modalidadPago === m.id).reduce((a, t) => a + t.precioCobrado, 0);
+                  const totalMod = vTotal + bTotal;
+                  const ops = ticketsViandas.filter((t) => t.modalidadPago === m.id).length + tarjetasBingo.filter((t) => t.modalidadPago === m.id).length;
 
-              {modalidades.length === 0 ? (
-                <div className="text-center py-14 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
-                  <CreditCard className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-slate-500 text-sm">No hay modalidades configuradas.</p>
-                  <p className="text-slate-400 text-xs mt-1">Usa el formulario para agregar la primera.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {modalidades.map((m) => {
-                    const vTotal = ticketsViandas.filter((t) => t.modalidadPago === m.id).reduce((a, t) => a + t.total, 0);
-                    const bTotal = tarjetasBingo.filter((t) => t.modalidadPago === m.id).reduce((a, t) => a + t.precioCobrado, 0);
-                    const totalMod = vTotal + bTotal;
-                    const ops = ticketsViandas.filter((t) => t.modalidadPago === m.id).length + tarjetasBingo.filter((t) => t.modalidadPago === m.id).length;
-
-                    return (
-                      <div
-                        key={m.id}
-                        className={`bg-white dark:bg-slate-900 rounded-2xl border shadow-sm overflow-hidden transition ${
-                          m.activo
-                            ? 'border-slate-200 dark:border-slate-800'
-                            : 'border-slate-200 dark:border-slate-800 opacity-60'
+                  return (
+                    <div
+                      key={m.id}
+                      className={`bg-white dark:bg-slate-900 rounded-2xl border shadow-sm overflow-hidden transition ${m.activo
+                        ? 'border-slate-200 dark:border-slate-800 hover:border-rose-500/40'
+                        : 'border-slate-200 dark:border-slate-800 opacity-60'
                         }`}
-                      >
-                        <div className="flex items-start gap-4 p-4">
-                          {/* Color strip */}
-                          <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${m.gradient} flex items-center justify-center text-2xl flex-shrink-0 shadow-lg`}>
-                            {m.icono}
-                          </div>
+                    >
+                      <div className="flex items-start gap-4 p-4">
+                        {/* Color strip */}
+                        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${m.gradient} flex items-center justify-center text-2xl flex-shrink-0 shadow-lg`}>
+                          {m.icono}
+                        </div>
 
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className="font-extrabold text-slate-900 dark:text-white">{m.nombre}</h4>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
-                                #{m.orden}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-extrabold text-slate-900 dark:text-white">{m.nombre}</h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
+                              #{m.orden}
+                            </span>
+                            {m.activo ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                                ✓ Activa
                               </span>
-                              {m.activo ? (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
-                                  ✓ Activa
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400">
-                                  Inactiva
-                                </span>
-                              )}
-                            </div>
-                            {m.descripcion && (
-                              <p className="text-xs text-slate-500 mt-0.5 truncate">{m.descripcion}</p>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400">
+                                Inactiva
+                              </span>
                             )}
-                            <div className="mt-2 flex gap-3 text-[11px] text-slate-500">
-                              <span><strong className="text-slate-700 dark:text-slate-300">{ops}</strong> operaciones</span>
-                              <span>·</span>
-                              <span>Total: <strong className="text-slate-700 dark:text-slate-300">{formatPrecio(totalMod)}</strong></span>
-                            </div>
                           </div>
-
-                          {/* Actions */}
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <button
-                              onClick={() => handleToggleModalidad(m.id, !m.activo)}
-                              className={`p-2 rounded-lg transition ${
-                                m.activo
-                                  ? 'text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
-                                  : 'text-slate-400 hover:text-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
-                              }`}
-                              title={m.activo ? 'Desactivar' : 'Activar'}
-                            >
-                              {m.activo
-                                ? <ToggleRight className="w-5 h-5" />
-                                : <ToggleLeft className="w-5 h-5" />
-                              }
-                            </button>
-                            <button
-                              onClick={() => handleEditModalidad(m)}
-                              className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 rounded-lg transition"
-                              title="Editar"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteModalidad(m.id, m.nombre)}
-                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition"
-                              title="Eliminar"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                          {m.descripcion && (
+                            <p className="text-xs text-slate-500 mt-0.5 truncate">{m.descripcion}</p>
+                          )}
+                          <div className="mt-2 flex gap-3 text-[11px] text-slate-500">
+                            <span><strong className="text-slate-700 dark:text-slate-300">{ops}</strong> operaciones</span>
+                            <span>·</span>
+                            <span>Total: <strong className="text-slate-700 dark:text-slate-300">{formatPrecio(totalMod)}</strong></span>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
 
-              {/* Info card */}
-              <div className="bg-gradient-to-br from-rose-50 to-pink-50 dark:from-rose-950/20 dark:to-pink-950/20 border border-rose-200 dark:border-rose-900 rounded-2xl p-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-rose-100 dark:bg-rose-900/50 flex items-center justify-center flex-shrink-0">
-                    <Receipt className="w-4 h-4 text-rose-600" />
-                  </div>
-                  <div className="text-xs">
-                    <p className="font-bold text-rose-800 dark:text-rose-300 mb-1">¿Cómo funcionan las modalidades?</p>
-                    <ul className="text-rose-700 dark:text-rose-400 space-y-0.5 list-disc list-inside">
-                      <li>Las modalidades <strong>activas</strong> aparecen en los formularios de venta de viandas y bingo.</li>
-                      <li>Las modalidades <strong>inactivas</strong> no se pueden seleccionar pero conservan su historial.</li>
-                      <li>Puedes agregar métodos personalizados como <em>MODO</em>, <em>Billetera Virtual</em>, etc.</li>
-                    </ul>
-                  </div>
+                        {/* Actions */}
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => handleToggleModalidad(m.id, !m.activo)}
+                            className={`p-2 rounded-lg transition ${m.activo
+                              ? 'text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                              : 'text-slate-400 hover:text-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+                              }`}
+                            title={m.activo ? 'Desactivar' : 'Activar'}
+                          >
+                            {m.activo
+                              ? <ToggleRight className="w-5 h-5" />
+                              : <ToggleLeft className="w-5 h-5" />
+                            }
+                          </button>
+                          <button
+                            onClick={() => handleEditModalidad(m)}
+                            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 rounded-lg transition"
+                            title="Editar"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteModalidad(m.id, m.nombre)}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Info card */}
+            <div className="bg-gradient-to-br from-rose-50 to-pink-50 dark:from-rose-950/20 dark:to-pink-950/20 border border-rose-200 dark:border-rose-900 rounded-2xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-rose-100 dark:bg-rose-900/50 flex items-center justify-center flex-shrink-0">
+                  <Receipt className="w-4 h-4 text-rose-600" />
+                </div>
+                <div className="text-xs">
+                  <p className="font-bold text-rose-800 dark:text-rose-300 mb-1">¿Cómo funcionan las modalidades?</p>
+                  <ul className="text-rose-700 dark:text-rose-400 space-y-0.5 list-disc list-inside">
+                    <li>Las modalidades <strong>activas</strong> aparecen en los formularios de venta de viandas y bingo.</li>
+                    <li>Las modalidades <strong>inactivas</strong> no se pueden seleccionar pero conservan su historial.</li>
+                    <li>Puedes agregar métodos personalizados como <em>MODO</em>, <em>Billetera Virtual</em>, etc.</li>
+                  </ul>
                 </div>
               </div>
             </div>
+
+            {/* Modal: Create / Edit Modalidad */}
+            <Modal
+              isOpen={isModalidadModalOpen}
+              onClose={() => {
+                setIsModalidadModalOpen(false);
+                resetModalidadForm();
+              }}
+              title={editingModalidadId ? 'Editar Modalidad de Pago' : 'Nueva Modalidad de Pago'}
+              size="md"
+            >
+              <form onSubmit={handleSaveModalidad} className="space-y-4 text-xs">
+                {/* Nombre */}
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Nombre de la Modalidad *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={mpNombre}
+                    onChange={(e) => setMpNombre(e.target.value)}
+                    placeholder="Ej. Mercado Pago, Efectivo, MODO..."
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
+                  />
+                </div>
+
+                {/* Descripción */}
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Descripción / Instrucciones (opcional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={mpDescripcion}
+                    onChange={(e) => setMpDescripcion(e.target.value)}
+                    placeholder="Ej. Pago mediante transferencia CBU 123456..."
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl resize-none"
+                  />
+                </div>
+
+                {/* Icono y orden en la misma fila */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Ícono / Emoji *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={mpIcono}
+                      onChange={(e) => setMpIcono(e.target.value)}
+                      placeholder="💳"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-center text-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Orden de Aparición
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="99"
+                      value={mpOrden}
+                      onChange={(e) => setMpOrden(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-center"
+                    />
+                  </div>
+                </div>
+
+                {/* Color selector */}
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-2">
+                    Color / Tema Visual
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {COLOR_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.color}
+                        type="button"
+                        onClick={() => { setMpColor(opt.color); setMpGradient(opt.gradient); }}
+                        className={`flex flex-col items-center gap-1 p-2 rounded-xl border-2 transition ${mpColor === opt.color
+                          ? 'border-rose-500 bg-rose-50 dark:bg-rose-950/30 scale-105'
+                          : 'border-slate-200 dark:border-slate-700 hover:border-slate-400'
+                          }`}
+                      >
+                        <div
+                          className="w-6 h-6 rounded-full shadow"
+                          style={{ background: opt.preview }}
+                        />
+                        <span className="text-[9px] font-bold text-slate-600 dark:text-slate-400">{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Preview */}
+                <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                  <span className="text-[10px] uppercase font-black text-slate-400 tracking-wider block mb-2">Vista previa</span>
+                  <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r ${mpGradient} text-white shadow-lg`}>
+                    <span className="text-lg">{mpIcono || '💳'}</span>
+                    <span className="font-black text-sm">{mpNombre || 'Modalidad'}</span>
+                  </div>
+                </div>
+
+                {/* Estado activo */}
+                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                  <div>
+                    <span className="font-bold text-slate-800 dark:text-slate-200 block">Disponible para usar</span>
+                    <span className="text-[10px] text-slate-500">Los vendedores podrán seleccionar esta modalidad</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMpActivo(!mpActivo)}
+                    className="flex-shrink-0"
+                  >
+                    {mpActivo
+                      ? <ToggleRight className="w-8 h-8 text-emerald-500" />
+                      : <ToggleLeft className="w-8 h-8 text-slate-400" />
+                    }
+                  </button>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsModalidadModalOpen(false);
+                      resetModalidadForm();
+                    }}
+                    className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs hover:bg-slate-200 transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingModalidad}
+                    className="flex-1 py-3 bg-gradient-to-r from-rose-600 to-pink-600 text-white font-black rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm hover:from-rose-500 hover:to-pink-500 disabled:opacity-50"
+                  >
+                    {isSavingModalidad ? (
+                      <LoadingSpinner size="sm" color="text-white" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    {editingModalidadId ? 'Guardar Cambios' : 'Agregar Modalidad'}
+                  </button>
+                </div>
+              </form>
+            </Modal>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB 6: METRICAS FINANCIERAS */}
       {subTab === 'metricas' && (
@@ -1909,108 +2028,285 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
                 Solo el Super Administrador puede gestionar usuarios y asignar permisos.
               </p>
             </div>
-          ) : (
-            <>
-              {/* Register new user */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                <div className="lg:col-span-5">
-                  <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xl sticky top-24">
-                    <div className="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
-                      <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center">
-                        <UserPlus className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
-                          Registrar Nuevo Usuario
-                        </h3>
-                        <p className="text-xs text-slate-500">Solo accesible para el Super Admin</p>
-                      </div>
+          ) : (() => {
+            const q = searchUsuario.trim().toLowerCase();
+            const filteredUsers = q
+              ? userProfiles.filter((profile) => {
+                const rc = ROLE_CONFIG[profile.role] || ROLE_CONFIG.cajero;
+                return (
+                  (profile.displayName || '').toLowerCase().includes(q) ||
+                  (profile.email || '').toLowerCase().includes(q) ||
+                  profile.role.toLowerCase().includes(q) ||
+                  rc.label.toLowerCase().includes(q)
+                );
+              })
+              : userProfiles;
+
+            const editingProfile = userProfiles.find((p) => p.uid === editingUserId);
+
+            return (
+              <div className="space-y-5">
+                {/* Action Bar: Title + Search Input + Add User Button */}
+                <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center flex-shrink-0">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
+                        Usuarios Registrados ({filteredUsers.length}{q ? ` de ${userProfiles.length}` : ''})
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Gestiona cuentas de acceso, roles y permisos individuales
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:w-auto w-full">
+                    {/* Search Input */}
+                    <div className="relative flex-1 sm:w-72">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={searchUsuario}
+                        onChange={(e) => setSearchUsuario(e.target.value)}
+                        placeholder="Buscar usuario, correo o rol..."
+                        className="w-full pl-9 pr-8 py-2.5 text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/40"
+                      />
+                      {searchUsuario && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchUsuario('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          aria-label="Limpiar búsqueda"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
 
-                    <form onSubmit={handleRegisterUser} className="mt-5 space-y-4 text-xs">
-                      <div>
-                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Nombre Completo
-                        </label>
-                        <input
-                          type="text"
-                          value={newUserName}
-                          onChange={(e) => setNewUserName(e.target.value)}
-                          placeholder="Ej. María García"
-                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                        />
-                      </div>
+                    {/* Open Modal Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewUserEmail('');
+                        setNewUserPassword('');
+                        setNewUserName('');
+                        setNewUserRole('cajero');
+                        setNewUserPermisos(DEFAULT_PERMISOS_BY_ROLE['cajero']);
+                        setIsUserModalOpen(true);
+                      }}
+                      className="px-4 py-2.5 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-black rounded-xl shadow-md shadow-rose-600/20 transition flex items-center justify-center gap-2 text-xs whitespace-nowrap"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      Nuevo Usuario
+                    </button>
+                  </div>
+                </div>
 
-                      <div>
-                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Correo Electrónico *
-                        </label>
-                        <input
-                          type="email"
-                          required
-                          value={newUserEmail}
-                          onChange={(e) => setNewUserEmail(e.target.value)}
-                          placeholder="usuario@eventosina.com"
-                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Contraseña temporal *
-                        </label>
-                        <input
-                          type="password"
-                          required
-                          minLength={6}
-                          value={newUserPassword}
-                          onChange={(e) => setNewUserPassword(e.target.value)}
-                          placeholder="Mínimo 6 caracteres"
-                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Rol del Usuario
-                        </label>
-                        <select
-                          value={newUserRole}
-                          onChange={(e) => handleNewRoleChange(e.target.value as UserRole)}
-                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
+                {/* User list */}
+                {filteredUsers.length === 0 ? (
+                  <div className="text-center py-14 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
+                    <Users className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                    <p className="text-slate-600 dark:text-slate-300 font-bold text-sm">
+                      {q ? `No se encontraron usuarios para "${searchUsuario}"` : 'No hay usuarios registrados aún.'}
+                    </p>
+                    <p className="text-slate-400 text-xs mt-1">
+                      {q ? 'Intenta con otro término de búsqueda.' : 'Haz clic en "Nuevo Usuario" para crear el primero.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filteredUsers.map((profile) => {
+                      const rc = ROLE_CONFIG[profile.role] || ROLE_CONFIG.cajero;
+                      return (
+                        <div
+                          key={profile.uid}
+                          className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden hover:border-rose-500/40 transition flex flex-col justify-between"
                         >
-                          {(Object.entries(ROLE_CONFIG) as [UserRole, typeof ROLE_CONFIG[UserRole]][])
-                            .filter(([r]) => r !== 'superadmin')
-                            .map(([r, rc]) => (
-                              <option key={r} value={r}>{rc.label} — {rc.description}</option>
+                          <div className="p-4 flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`w-10 h-10 rounded-xl bg-${rc.color}-100 dark:bg-${rc.color}-950/50 flex items-center justify-center flex-shrink-0`}>
+                                <ShieldCheck className={`w-5 h-5 text-${rc.color}-600`} />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                                    {profile.displayName}
+                                  </span>
+                                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full bg-${rc.color}-100 dark:bg-${rc.color}-950 text-${rc.color}-700 dark:text-${rc.color}-300`}>
+                                    {rc.label}
+                                  </span>
+                                  {!profile.activo && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
+                                      Inactivo
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-500 truncate">{profile.email}</p>
+                                {profile.creadoPor && (
+                                  <p className="text-[10px] text-slate-400 mt-0.5">
+                                    Creado por: {profile.creadoPor}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <button
+                                onClick={() => handleStartEditUser(profile)}
+                                className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 rounded-lg transition"
+                                title="Editar rol y permisos"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              {profile.role !== 'superadmin' && (
+                                <button
+                                  onClick={() => handleDeleteUser(profile.uid, profile.email)}
+                                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition"
+                                  title="Eliminar perfil"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Permission badges */}
+                          <div className="px-4 pb-4 pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap gap-1.5">
+                            {permKey.map((k) => (
+                              <span
+                                key={k}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${profile.permisos[k]
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 line-through'
+                                  }`}
+                              >
+                                {permLabels[k]}
+                              </span>
                             ))}
-                        </select>
-                      </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
-                      {/* Permission checkboxes */}
-                      <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
-                        <span className="text-[10px] uppercase font-black text-slate-500 tracking-wider block">
-                          Permisos individuales
+                {/* Role legend */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4">
+                  <h5 className="font-black text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">
+                    Descripción de Roles
+                  </h5>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {(Object.entries(ROLE_CONFIG) as [UserRole, typeof ROLE_CONFIG[UserRole]][]).map(([r, rc]) => (
+                      <div key={r} className="flex items-center gap-2.5 text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                        <span className={`font-black px-2 py-0.5 rounded-full bg-${rc.color}-100 dark:bg-${rc.color}-950/40 text-${rc.color}-700 dark:text-${rc.color}-300 whitespace-nowrap`}>
+                          {rc.label}
                         </span>
-                        {permKey.map((k) => (
-                          <label key={k} className="flex items-center justify-between py-1.5 cursor-pointer">
-                            <span className="font-bold text-slate-700 dark:text-slate-300">{permLabels[k]}</span>
-                            <input
-                              type="checkbox"
-                              checked={newUserPermisos[k]}
-                              onChange={(e) =>
-                                setNewUserPermisos((prev) => ({ ...prev, [k]: e.target.checked }))
-                              }
-                              className="w-4 h-4 rounded text-rose-600"
-                            />
-                          </label>
-                        ))}
+                        <span className="text-slate-500 text-[11px] leading-snug">{rc.description}</span>
                       </div>
+                    ))}
+                  </div>
+                </div>
 
+                {/* Modal: Register New User */}
+                <Modal
+                  isOpen={isUserModalOpen}
+                  onClose={() => setIsUserModalOpen(false)}
+                  title="Registrar Nuevo Usuario"
+                  size="md"
+                >
+                  <form onSubmit={handleRegisterUser} className="space-y-4 text-xs">
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Nombre Completo
+                      </label>
+                      <input
+                        type="text"
+                        value={newUserName}
+                        onChange={(e) => setNewUserName(e.target.value)}
+                        placeholder="Ej. María García"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Correo Electrónico *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={newUserEmail}
+                        onChange={(e) => setNewUserEmail(e.target.value)}
+                        placeholder="usuario@eventosina.com"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Contraseña temporal *
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={newUserPassword}
+                        onChange={(e) => setNewUserPassword(e.target.value)}
+                        placeholder="Mínimo 6 caracteres"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Rol del Usuario
+                      </label>
+                      <select
+                        value={newUserRole}
+                        onChange={(e) => handleNewRoleChange(e.target.value as UserRole)}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
+                      >
+                        {(Object.entries(ROLE_CONFIG) as [UserRole, typeof ROLE_CONFIG[UserRole]][])
+                          .filter(([r]) => r !== 'superadmin')
+                          .map(([r, rc]) => (
+                            <option key={r} value={r}>{rc.label} — {rc.description}</option>
+                          ))}
+                      </select>
+                    </div>
+
+                    {/* Permission checkboxes */}
+                    <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
+                      <span className="text-[10px] uppercase font-black text-slate-500 tracking-wider block">
+                        Permisos individuales
+                      </span>
+                      {permKey.map((k) => (
+                        <label key={k} className="flex items-center justify-between py-1.5 cursor-pointer">
+                          <span className="font-bold text-slate-700 dark:text-slate-300">{permLabels[k]}</span>
+                          <input
+                            type="checkbox"
+                            checked={newUserPermisos[k]}
+                            onChange={(e) =>
+                              setNewUserPermisos((prev) => ({ ...prev, [k]: e.target.checked }))
+                            }
+                            className="w-4 h-4 rounded text-rose-600"
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsUserModalOpen(false)}
+                        className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs hover:bg-slate-200 transition"
+                      >
+                        Cancelar
+                      </button>
                       <button
                         type="submit"
                         disabled={isSavingUser}
-                        className="w-full py-3 bg-gradient-to-r from-rose-600 to-pink-600 text-white font-black rounded-xl shadow-lg transition text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                        className="flex-1 py-3 bg-gradient-to-r from-rose-600 to-pink-600 text-white font-black rounded-xl shadow-lg transition text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                       >
                         {isSavingUser ? (
                           <LoadingSpinner size="sm" color="text-white" />
@@ -2020,185 +2316,110 @@ export const Administracion: React.FC<AdministracionProps> = ({ config, onConfig
                           </>
                         )}
                       </button>
-                    </form>
-                  </div>
-                </div>
-
-                {/* User list */}
-                <div className="lg:col-span-7 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-slate-800 dark:text-slate-200 text-sm flex items-center gap-2">
-                      <Users className="w-4 h-4" />
-                      Usuarios Registrados ({userProfiles.length})
-                    </h3>
-                  </div>
-
-                  {userProfiles.length === 0 ? (
-                    <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
-                      <Users className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                      <p className="text-slate-500 text-sm">No hay usuarios registrados aún.</p>
-                      <p className="text-slate-400 text-xs mt-1">Usa el formulario para crear el primero.</p>
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {userProfiles.map((profile) => {
-                        const rc = ROLE_CONFIG[profile.role] || ROLE_CONFIG.cajero;
-                        const isEditing = editingUserId === profile.uid;
-                        return (
-                          <div
-                            key={profile.uid}
-                            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden"
-                          >
-                            <div className="p-4 flex items-start justify-between gap-3">
-                              <div className="flex items-center gap-3">
-                                <div className={`w-10 h-10 rounded-xl bg-${rc.color}-100 dark:bg-${rc.color}-950/50 flex items-center justify-center flex-shrink-0`}>
-                                  <ShieldCheck className={`w-5 h-5 text-${rc.color}-600`} />
-                                </div>
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-bold text-slate-900 dark:text-white text-sm">
-                                      {profile.displayName}
-                                    </span>
-                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full bg-${rc.color}-100 dark:bg-${rc.color}-950 text-${rc.color}-700 dark:text-${rc.color}-300`}>
-                                      {rc.label}
-                                    </span>
-                                    {!profile.activo && (
-                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
-                                        Inactivo
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-xs text-slate-500">{profile.email}</p>
-                                  {profile.creadoPor && (
-                                    <p className="text-[10px] text-slate-400 mt-0.5">
-                                      Creado por: {profile.creadoPor}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => isEditing ? setEditingUserId(null) : handleStartEditUser(profile)}
-                                  className="p-2 text-slate-400 hover:text-amber-600 transition"
-                                  title="Editar permisos"
-                                >
-                                  {isEditing ? <Lock className="w-4 h-4 text-amber-500" /> : <Unlock className="w-4 h-4" />}
-                                </button>
-                                {profile.role !== 'superadmin' && (
-                                  <button
-                                    onClick={() => handleDeleteUser(profile.uid, profile.email)}
-                                    className="p-2 text-slate-400 hover:text-rose-600 transition"
-                                    title="Eliminar perfil"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
+                  </form>
+                </Modal>
 
-                            {/* Permission badges */}
-                            <div className="px-4 pb-3 flex flex-wrap gap-1.5">
-                              {permKey.map((k) => (
-                                <span
-                                  key={k}
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                    profile.permisos[k]
-                                      ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 line-through'
-                                  }`}
-                                >
-                                  {permLabels[k]}
-                                </span>
-                              ))}
-                            </div>
+                {/* Modal: Edit User Role & Permissions */}
+                <Modal
+                  isOpen={isUserEditModalOpen && !!editingUserId}
+                  onClose={() => {
+                    setIsUserEditModalOpen(false);
+                    setEditingUserId(null);
+                  }}
+                  title="Editar Rol y Permisos de Usuario"
+                  size="md"
+                >
+                  {editingProfile && (
+                    <div className="space-y-4 text-xs">
+                      <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-600 flex items-center justify-center font-black text-sm flex-shrink-0">
+                          {(editingProfile.displayName || editingProfile.email || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-extrabold text-slate-900 dark:text-white text-sm truncate">
+                            {editingProfile.displayName}
+                          </p>
+                          <p className="text-slate-500 truncate">{editingProfile.email}</p>
+                        </div>
+                      </div>
 
-                            {/* Edit panel */}
-                            {isEditing && (
-                              <div className="border-t border-slate-100 dark:border-slate-800 p-4 bg-slate-50 dark:bg-slate-800/50 space-y-3">
-                                <div>
-                                  <label className="block text-[10px] uppercase font-black text-slate-500 tracking-wider mb-1.5">
-                                    Cambiar Rol
-                                  </label>
-                                  <select
-                                    value={editUserRole}
-                                    onChange={(e) => handleEditRoleChange(e.target.value as UserRole)}
-                                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold"
-                                  >
-                                    {(Object.entries(ROLE_CONFIG) as [UserRole, typeof ROLE_CONFIG[UserRole]][])
-                                      .filter(([r]) => r !== 'superadmin')
-                                      .map(([r, rc]) => (
-                                        <option key={r} value={r}>{rc.label}</option>
-                                      ))}
-                                  </select>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  {permKey.map((k) => (
-                                    <label key={k} className="flex items-center gap-2 cursor-pointer text-xs">
-                                      <input
-                                        type="checkbox"
-                                        checked={editUserPermisos[k]}
-                                        onChange={(e) =>
-                                          setEditUserPermisos((prev) => ({ ...prev, [k]: e.target.checked }))
-                                        }
-                                        className="rounded text-rose-600 w-3.5 h-3.5"
-                                      />
-                                      <span className="font-bold text-slate-700 dark:text-slate-300">
-                                        {permLabels[k]}
-                                      </span>
-                                    </label>
-                                  ))}
-                                </div>
-                                <div className="flex gap-2 pt-1">
-                                  <button
-                                    onClick={() => handleSaveUserPermisos(profile.uid)}
-                                    disabled={isSavingUser}
-                                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs flex items-center justify-center gap-1.5 transition disabled:opacity-50"
-                                  >
-                                    {isSavingUser ? (
-                                      <LoadingSpinner size="sm" color="text-white" />
-                                    ) : (
-                                      <>
-                                        <Save className="w-3.5 h-3.5" /> Guardar Permisos
-                                      </>
-                                    )}
-                                  </button>
-                                  <button
-                                    onClick={() => setEditingUserId(null)}
-                                    className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition hover:bg-slate-300"
-                                  >
-                                    Cancelar
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                      <div>
+                        <label className="block text-[10px] uppercase font-black text-slate-500 tracking-wider mb-1.5">
+                          Rol del Usuario
+                        </label>
+                        <select
+                          value={editUserRole}
+                          onChange={(e) => handleEditRoleChange(e.target.value as UserRole)}
+                          className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold"
+                        >
+                          {(Object.entries(ROLE_CONFIG) as [UserRole, typeof ROLE_CONFIG[UserRole]][])
+                            .filter(([r]) => r !== 'superadmin' || editingProfile.role === 'superadmin')
+                            .map(([r, rc]) => (
+                              <option key={r} value={r}>{rc.label} — {rc.description}</option>
+                            ))}
+                        </select>
+                      </div>
+
+                      <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
+                        <span className="text-[10px] uppercase font-black text-slate-500 tracking-wider block">
+                          Permisos individuales
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                          {permKey.map((k) => (
+                            <label key={k} className="flex items-center gap-2.5 p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 cursor-pointer text-xs">
+                              <input
+                                type="checkbox"
+                                checked={editUserPermisos[k]}
+                                onChange={(e) =>
+                                  setEditUserPermisos((prev) => ({ ...prev, [k]: e.target.checked }))
+                                }
+                                className="rounded text-rose-600 w-4 h-4"
+                              />
+                              <span className="font-bold text-slate-700 dark:text-slate-300">
+                                {permLabels[k]}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsUserEditModalOpen(false);
+                            setEditingUserId(null);
+                          }}
+                          className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs transition hover:bg-slate-200"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveUserPermisos(editingProfile.uid)}
+                          disabled={isSavingUser}
+                          className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs flex items-center justify-center gap-1.5 transition shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                        >
+                          {isSavingUser ? (
+                            <LoadingSpinner size="sm" color="text-white" />
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4" /> Guardar Permisos
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
-
-                  {/* Role legend */}
-                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4">
-                    <h5 className="font-black text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">
-                      Descripción de Roles
-                    </h5>
-                    <div className="space-y-2">
-                      {(Object.entries(ROLE_CONFIG) as [UserRole, typeof ROLE_CONFIG[UserRole]][]).map(([r, rc]) => (
-                        <div key={r} className="flex items-center gap-3 text-xs">
-                          <span className={`font-black px-2 py-0.5 rounded-full bg-${rc.color}-100 dark:bg-${rc.color}-950/40 text-${rc.color}-700 dark:text-${rc.color}-300 whitespace-nowrap`}>
-                            {rc.label}
-                          </span>
-                          <span className="text-slate-500">{rc.description}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                </Modal>
               </div>
-            </>
-          )}
+            );
+          })()}
         </div>
       )}
+
+      <ConfirmationModal />
     </div>
   );
 };
