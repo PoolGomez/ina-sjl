@@ -14,6 +14,7 @@ import { initializeApp, deleteApp } from 'firebase/app';
 import { initializeFirebase } from './firebase';
 import {
   UserRole,
+  UserPermissions,
   AppUserProfile,
   DEFAULT_PERMISOS_BY_ROLE,
 } from './types';
@@ -33,7 +34,15 @@ interface AuthContextType {
   loading: boolean;
   isFirebaseConnected: boolean;
   signIn: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
-  signUp: (email: string, pass: string, displayName?: string, role?: UserRole) => Promise<{ success: boolean; error?: string }>;
+  signUp: (
+    email: string,
+    pass: string,
+    displayName?: string,
+    role?: UserRole,
+    customPermisos?: UserPermissions,
+    creadoPor?: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  refreshUserProfile: () => Promise<void>;
   loginDemo: (email?: string) => void;
   signOut: () => Promise<void>;
 }
@@ -44,6 +53,7 @@ const AuthContext = createContext<AuthContextType>({
   isFirebaseConnected: false,
   signIn: async () => ({ success: false }),
   signUp: async () => ({ success: false }),
+  refreshUserProfile: async () => {},
   loginDemo: () => {},
   signOut: async () => {},
 });
@@ -125,6 +135,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const refreshUserProfile = async () => {
+    const { auth, db, isConfigured } = initializeFirebase();
+    if (isConfigured && auth && db && auth.currentUser) {
+      const appUser = await loadOrCreateProfile(db, auth.currentUser);
+      setUser(appUser);
+    }
+  };
+
   const signIn = async (email: string, pass: string) => {
     const { auth, db, isConfigured } = initializeFirebase();
     if (isConfigured && auth && db) {
@@ -148,7 +166,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string,
     pass: string,
     displayName?: string,
-    role: UserRole = 'cajero'
+    role: UserRole = 'cajero',
+    customPermisos?: UserPermissions,
+    creadoPor?: string
   ) => {
     const { db, isConfigured } = initializeFirebase();
     const config = (await import('./firebase')).getActiveFirebaseConfig();
@@ -165,9 +185,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email,
           displayName: resolvedName,
           role,
-          permisos: DEFAULT_PERMISOS_BY_ROLE[role],
+          permisos: customPermisos
+            ? { ...DEFAULT_PERMISOS_BY_ROLE[role], ...customPermisos }
+            : DEFAULT_PERMISOS_BY_ROLE[role],
           activo: true,
           fechaCreacion: new Date().toISOString(),
+          ...(creadoPor ? { creadoPor } : {}),
         };
         await setDoc(profileRef, profile);
         return { success: true };
@@ -217,6 +240,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isFirebaseConnected,
         signIn,
         signUp,
+        refreshUserProfile,
         loginDemo,
         signOut,
       }}

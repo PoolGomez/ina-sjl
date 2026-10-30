@@ -68,7 +68,7 @@ export const LandingPageINA: React.FC<LandingPageINAProps> = ({
     if (onEnterDashboard) {
       onEnterDashboard();
     } else {
-      router.push('/membresia');
+      router.push('/system/membresia');
     }
   };
 
@@ -197,7 +197,7 @@ export const LandingPageINA: React.FC<LandingPageINAProps> = ({
           <div className="flex items-center gap-2 sm:gap-3">
             {bingoActivo && (
               <a
-                href="/transmision"
+                href="/system/transmision"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/20 transition-all hover:scale-105"
@@ -229,34 +229,59 @@ export const LandingPageINA: React.FC<LandingPageINAProps> = ({
         </div>
       </header>
 
-      {/* ── Live Bingo Alert Banner (Only when a Bingo game is active) ─── */}
-      {bingoActivo && (
-        <div className="bg-amber-50 border-b border-amber-200/80 px-4 py-2.5">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-2.5 w-2.5 relative flex-shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600" />
-              </span>
-              <p className="text-xs sm:text-sm font-medium text-slate-800">
-                <strong className="font-bold text-rose-700 mr-1.5">
-                  Transmisión en Vivo:
+      {/* ── Active Event & Live Bingo Banner ─── */}
+      {(bingoActivo || (configEvento?.activo && configEvento?.nombreEvento)) && (
+        <div
+          className={`${
+            bingoActivo
+              ? 'bg-amber-50 border-b border-amber-200/80'
+              : 'bg-sky-50/80 border-b border-sky-200/70'
+          } px-4 py-3`}
+        >
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 text-center sm:text-left">
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+              {bingoActivo ? (
+                <span className="flex h-2.5 w-2.5 relative flex-shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600" />
+                </span>
+              ) : (
+                <Calendar className="w-4 h-4 text-sky-700 flex-shrink-0" />
+              )}
+              <div className="text-xs sm:text-sm font-medium text-slate-800">
+                <strong
+                  className={`font-bold mr-1.5 ${
+                    bingoActivo ? 'text-rose-700' : 'text-sky-800'
+                  }`}
+                >
+                  {bingoActivo ? 'Transmisión en Vivo:' : 'Evento Activo:'}
                 </strong>
-                {configEvento?.nombreEvento || 'Evento Fraternal INA'} —{' '}
-                {bingoState?.numerosSalidos?.length || 0} bolillas cantadas
-                {bingoState?.figura ? ` · Figura: ${bingoState.figura}` : ''}
-              </p>
+                <span className="font-bold text-slate-900">
+                  {configEvento?.nombreEvento || 'Evento Fraternal INA'}
+                </span>
+                {configEvento?.subtitulo ? ` — ${configEvento.subtitulo}` : ''}
+                {configEvento?.lugar ? ` · 📍 ${configEvento.lugar}` : ''}
+                {configEvento?.fechaEvento ? ` · 📅 ${configEvento.fechaEvento}` : ''}
+                {bingoActivo && (
+                  <span className="ml-1.5 text-rose-700 font-semibold">
+                    ({bingoState?.numerosSalidos?.length || 0} bolillas cantadas
+                    {bingoState?.figura ? ` · Figura: ${bingoState.figura}` : ''})
+                  </span>
+                )}
+              </div>
             </div>
-            <a
-              href="/transmision"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3.5 py-1 rounded-full bg-rose-600 text-white font-semibold text-xs hover:bg-rose-500 transition flex items-center gap-1 shadow-xs flex-shrink-0"
-            >
-              <Tv2 className="w-3.5 h-3.5" />
-              Ver Transmisión del Bingo
-              <ChevronRight className="w-3.5 h-3.5" />
-            </a>
+            {bingoActivo && (
+              <a
+                href="/system/transmision"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3.5 py-1 rounded-full bg-rose-600 text-white font-semibold text-xs hover:bg-rose-500 transition flex items-center gap-1 shadow-xs flex-shrink-0"
+              >
+                <Tv2 className="w-3.5 h-3.5" />
+                Ver Transmisión del Bingo
+                <ChevronRight className="w-3.5 h-3.5" />
+              </a>
+            )}
           </div>
         </div>
       )}
@@ -311,7 +336,7 @@ export const LandingPageINA: React.FC<LandingPageINAProps> = ({
 
             {bingoActivo && (
               <a
-                href="/transmision"
+                href="/system/transmision"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-6 py-3.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs sm:text-sm shadow-lg transition flex items-center gap-2"

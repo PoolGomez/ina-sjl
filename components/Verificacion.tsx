@@ -14,20 +14,25 @@ import {
   AlertCircle,
   PackageCheck,
   RotateCcw,
+  Receipt,
 } from 'lucide-react';
 import {
   TicketVianda,
+  TicketEventoVenta,
   TarjetaBingoVenta,
   ConfiguracionEvento,
   formatPrecio,
 } from '../lib/types';
 import {
   getTicketsViandas,
+  getTicketsEventoVentas,
   getTarjetasBingoVentas,
   updateTicketViandaEstado,
+  updateTicketEventoEstado,
   updateTarjetaBingoEstado,
 } from '../lib/storage';
 import { TicketModal } from './TicketModal';
+import { AdaptiveDataView } from './AdaptiveDataView';
 
 interface VerificacionProps {
   config: ConfiguracionEvento;
@@ -36,10 +41,12 @@ interface VerificacionProps {
 export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
   const [query, setQuery] = useState('');
   const [ticketsViandas, setTicketsViandas] = useState<TicketVianda[]>([]);
+  const [ticketsVentas, setTicketsVentas] = useState<TicketEventoVenta[]>([]);
   const [tarjetasBingo, setTarjetasBingo] = useState<TarjetaBingoVenta[]>([]);
   const [searchResult, setSearchResult] = useState<{
-    tipo: 'vianda' | 'bingo';
+    tipo: 'vianda' | 'ticket' | 'bingo';
     ticketVianda?: TicketVianda;
+    ticketEvento?: TicketEventoVenta;
     tarjetaBingo?: TarjetaBingoVenta;
   } | null>(null);
 
@@ -47,13 +54,19 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
 
   // Modal print
   const [selectedTicketPrint, setSelectedTicketPrint] = useState<TicketVianda | null>(null);
+  const [selectedTicketEventoPrint, setSelectedTicketEventoPrint] = useState<TicketEventoVenta | null>(null);
   const [selectedBingoPrint, setSelectedBingoPrint] = useState<TarjetaBingoVenta | null>(null);
-  const [modalType, setModalType] = useState<'vianda' | 'bingo'>('vianda');
+  const [modalType, setModalType] = useState<'vianda' | 'ticket' | 'bingo'>('vianda');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const loadData = async () => {
-    const [tks, tbs] = await Promise.all([getTicketsViandas(), getTarjetasBingoVentas()]);
+    const [tks, tksEv, tbs] = await Promise.all([
+      getTicketsViandas(),
+      getTicketsEventoVentas(),
+      getTarjetasBingoVentas(),
+    ]);
     setTicketsViandas(tks);
+    setTicketsVentas(tksEv);
     setTarjetasBingo(tbs);
   };
 
@@ -61,14 +74,24 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
     loadData();
   }, []);
 
+  const matchesActiveEvent = (item: { eventoId?: string }): boolean => {
+    if (!config.id) return true;
+    if (item.eventoId) return item.eventoId === config.id;
+    return config.id === 'evento-principal';
+  };
+
+  const ticketsEvento = ticketsViandas.filter(matchesActiveEvent);
+  const ticketsGeneralEvento = ticketsVentas.filter(matchesActiveEvent);
+  const bingoEvento = tarjetasBingo.filter(matchesActiveEvent);
+
   const handleSearch = (termToSearch?: string) => {
     const term = (termToSearch !== undefined ? termToSearch : query).trim().toLowerCase();
     if (!term) return;
 
     setHasSearched(true);
 
-    // 1. Check exact or partial match in Viandas Tickets
-    const matchVianda = ticketsViandas.find(
+    // 1. Check exact or partial match in Viandas Tickets of the active event
+    const matchVianda = ticketsEvento.find(
       (t) =>
         t.numeroTicket.toLowerCase() === term ||
         t.numeroTicket.toLowerCase() === `v-${term}` ||
@@ -80,8 +103,21 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
       return;
     }
 
-    // 2. Check exact or partial match in Bingo Cards
-    const matchBingo = tarjetasBingo.find(
+    // 2. Check exact or partial match in Event Tickets (T-0001) of the active event
+    const matchTicketEv = ticketsGeneralEvento.find(
+      (t) =>
+        t.numeroTicket.toLowerCase() === term ||
+        t.numeroTicket.toLowerCase() === `t-${term}` ||
+        t.comprador.toLowerCase().includes(term)
+    );
+
+    if (matchTicketEv) {
+      setSearchResult({ tipo: 'ticket', ticketEvento: matchTicketEv });
+      return;
+    }
+
+    // 3. Check exact or partial match in Bingo Cards of the active event
+    const matchBingo = bingoEvento.find(
       (b) =>
         b.numeroTicket.toLowerCase() === term ||
         b.numeroTicket.toLowerCase() === `b-${term}` ||
@@ -121,6 +157,28 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
     }
   };
 
+  const handleToggleEstadoTicketEvento = async (ticket: TicketEventoVenta) => {
+    const nuevo = ticket.estadoPago === 'pagado' ? 'pendiente' : 'pagado';
+    const updated = await updateTicketEventoEstado(ticket.id, nuevo);
+    if (updated) {
+      setTicketsVentas((prev) => prev.map((t) => (t.id === ticket.id ? updated : t)));
+      if (searchResult?.ticketEvento?.id === ticket.id) {
+        setSearchResult({ tipo: 'ticket', ticketEvento: updated });
+      }
+    }
+  };
+
+  const handleToggleEntregadoTicketEvento = async (ticket: TicketEventoVenta) => {
+    const nuevo = !ticket.entregado;
+    const updated = await updateTicketEventoEstado(ticket.id, ticket.estadoPago, nuevo);
+    if (updated) {
+      setTicketsVentas((prev) => prev.map((t) => (t.id === ticket.id ? updated : t)));
+      if (searchResult?.ticketEvento?.id === ticket.id) {
+        setSearchResult({ tipo: 'ticket', ticketEvento: updated });
+      }
+    }
+  };
+
   const handleToggleEstadoBingo = async (tarjeta: TarjetaBingoVenta) => {
     const nuevo = tarjeta.estadoPago === 'pagado' ? 'pendiente' : 'pagado';
     const updated = await updateTarjetaBingoEstado(tarjeta.id, nuevo);
@@ -132,8 +190,9 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
     }
   };
 
-  const viandasPendientes = ticketsViandas.filter((t) => t.estadoPago === 'pendiente');
-  const bingoPendientes = tarjetasBingo.filter((b) => b.estadoPago === 'pendiente');
+  const viandasPendientes = ticketsEvento.filter((t) => t.estadoPago === 'pendiente');
+  const ticketsPendientes = ticketsGeneralEvento.filter((t) => t.estadoPago === 'pendiente');
+  const bingoPendientes = bingoEvento.filter((b) => b.estadoPago === 'pendiente');
 
   return (
     <div className="space-y-6">
@@ -325,6 +384,131 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
             </div>
           )}
 
+          {searchResult.tipo === 'ticket' && searchResult.ticketEvento && (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border-2 border-slate-200 dark:border-slate-800 shadow-2xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
+                    <Receipt className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-400 uppercase">
+                      Ticket / Entrada Oficial
+                    </span>
+                    <h3 className="text-2xl font-black text-slate-900 dark:text-white">
+                      {searchResult.ticketEvento.numeroTicket}
+                    </h3>
+                  </div>
+                </div>
+
+                <div>
+                  {searchResult.ticketEvento.estadoPago === 'pagado' ? (
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-500 text-white font-black text-sm shadow-lg shadow-emerald-500/30">
+                      <CheckCircle2 className="w-5 h-5" />
+                      ESTADO: PAGADO
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30">
+                      <Clock className="w-5 h-5" />
+                      ESTADO: PENDIENTE DE COBRO
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="py-6 grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <User className="w-4 h-4 text-slate-400" />
+                    <span>Comprador:</span>
+                    <strong className="text-slate-900 dark:text-white">
+                      {searchResult.ticketEvento.comprador}
+                    </strong>
+                  </div>
+                  {searchResult.ticketEvento.telefono && (
+                    <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                      <Phone className="w-4 h-4 text-slate-400" />
+                      <span>Teléfono:</span>
+                      <strong className="text-slate-900 dark:text-white">
+                        {searchResult.ticketEvento.telefono}
+                      </strong>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <DollarSign className="w-4 h-4 text-slate-400" />
+                    <span>Modalidad de Pago:</span>
+                    <span className="uppercase font-bold text-slate-800 dark:text-slate-200">
+                      {searchResult.ticketEvento.modalidadPago}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <span className="text-xs font-bold text-slate-500 uppercase block">
+                    Tickets Incluidos:
+                  </span>
+                  {searchResult.ticketEvento.items.map((it, idx) => (
+                    <div key={idx} className="flex justify-between text-xs">
+                      <span>
+                        {it.cantidad}x {it.nombre} ({it.etiquetaPrecio})
+                      </span>
+                      <strong className="text-slate-900 dark:text-white">
+                        {formatPrecio(it.subtotal)}
+                      </strong>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between font-black text-sm">
+                    <span>TOTAL:</span>
+                    <span className="text-cyan-600 dark:text-cyan-400 text-base">
+                      {formatPrecio(searchResult.ticketEvento.total)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-2.5 justify-end">
+                <button
+                  onClick={() => handleToggleEstadoTicketEvento(searchResult.ticketEvento!)}
+                  className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition ${
+                    searchResult.ticketEvento.estadoPago === 'pagado'
+                      ? 'bg-amber-100 hover:bg-amber-200 text-amber-900'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {searchResult.ticketEvento.estadoPago === 'pagado'
+                    ? 'Marcar como Pendiente'
+                    : 'Marcar como Pagado Ahora'}
+                </button>
+
+                <button
+                  onClick={() => handleToggleEntregadoTicketEvento(searchResult.ticketEvento!)}
+                  className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition ${
+                    searchResult.ticketEvento.entregado
+                      ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
+                      : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md'
+                  }`}
+                >
+                  <PackageCheck className="w-4 h-4" />
+                  {searchResult.ticketEvento.entregado
+                    ? 'Canjeado / Entregado'
+                    : 'Marcar como Entregado'}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setSelectedTicketEventoPrint(searchResult.ticketEvento!);
+                    setModalType('ticket');
+                    setIsModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-2 transition"
+                >
+                  <Printer className="w-4 h-4" /> Reimprimir Ticket
+                </button>
+              </div>
+            </div>
+          )}
+
           {searchResult.tipo === 'bingo' && searchResult.tarjetaBingo && (
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border-2 border-slate-200 dark:border-slate-800 shadow-2xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100 dark:border-slate-800">
@@ -442,7 +626,7 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
             No se encontró ningún ticket o tarjeta
           </h4>
           <p className="text-xs text-slate-500 mt-1">
-            Verifica que el número o nombre ingresado sea correcto (ej. V-1001, B-1001 o el número de tarjeta de bingo).
+            Verifica que el número o nombre ingresado sea correcto (ej. V-1001, T-0001, B-1001 o el número de tarjeta de bingo).
           </p>
         </div>
       ) : null}
@@ -450,7 +634,7 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
       {/* Quick Glance of Pending Debts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         {/* Viandas Pendientes */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
             <h4 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-500" />
@@ -464,37 +648,73 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
             </button>
           </div>
 
-          {viandasPendientes.length === 0 ? (
-            <p className="py-6 text-center text-xs text-slate-400">
-              ¡Excelente! Todas las viandas están al día.
-            </p>
-          ) : (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-60 overflow-y-auto">
-              {viandasPendientes.map((tk) => (
-                <div
-                  key={tk.id}
-                  className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40 px-2 rounded-lg cursor-pointer"
-                  onClick={() => setSearchResult({ tipo: 'vianda', ticketVianda: tk })}
-                >
-                  <div>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white">
-                      {tk.numeroTicket}
-                    </span>
-                    <span className="text-slate-600 dark:text-slate-400 ml-2">{tk.comprador}</span>
+          <AdaptiveDataView
+            items={viandasPendientes}
+            pageSize={15}
+            itemLabel="viandas pendientes"
+            emptyState={
+              <p className="py-6 text-center text-xs text-slate-400">
+                ¡Excelente! Todas las viandas están al día.
+              </p>
+            }
+            renderTable={(visibleViandas) => (
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 uppercase text-[10px] font-black">
+                    <th className="py-2 px-3 whitespace-nowrap">Ticket</th>
+                    <th className="py-2 px-3 whitespace-nowrap">Comprador</th>
+                    <th className="py-2 px-3 text-right whitespace-nowrap">Importe</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {visibleViandas.map((tk) => (
+                    <tr
+                      key={tk.id}
+                      onClick={() => setSearchResult({ tipo: 'vianda', ticketVianda: tk })}
+                      className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition"
+                    >
+                      <td className="py-2.5 px-3 font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                        {tk.numeroTicket}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        {tk.comprador}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-amber-600 whitespace-nowrap">
+                        {formatPrecio(tk.total)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            renderCards={(visibleViandas) => (
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {visibleViandas.map((tk) => (
+                  <div
+                    key={tk.id}
+                    className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40 px-2 rounded-lg cursor-pointer"
+                    onClick={() => setSearchResult({ tipo: 'vianda', ticketVianda: tk })}
+                  >
+                    <div>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white">
+                        {tk.numeroTicket}
+                      </span>
+                      <span className="text-slate-600 dark:text-slate-400 ml-2">{tk.comprador}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-black text-amber-600">
+                        {formatPrecio(tk.total)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-black text-amber-600">
-                      {formatPrecio(tk.total)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          />
         </div>
 
         {/* Bingo Pendientes */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
             <h4 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-500" />
@@ -508,33 +728,69 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
             </button>
           </div>
 
-          {bingoPendientes.length === 0 ? (
-            <p className="py-6 text-center text-xs text-slate-400">
-              ¡Excelente! Todas las tarjetas de bingo están pagadas.
-            </p>
-          ) : (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-60 overflow-y-auto">
-              {bingoPendientes.map((tb) => (
-                <div
-                  key={tb.id}
-                  className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40 px-2 rounded-lg cursor-pointer"
-                  onClick={() => setSearchResult({ tipo: 'bingo', tarjetaBingo: tb })}
-                >
-                  <div>
-                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                      Tarjeta #{String(tb.numeroTarjeta).padStart(3, '0')}
-                    </span>
-                    <span className="text-slate-600 dark:text-slate-400 ml-2">{tb.comprador}</span>
+          <AdaptiveDataView
+            items={bingoPendientes}
+            pageSize={15}
+            itemLabel="tarjetas pendientes"
+            emptyState={
+              <p className="py-6 text-center text-xs text-slate-400">
+                ¡Excelente! Todas las tarjetas de bingo están pagadas.
+              </p>
+            }
+            renderTable={(visibleBingo) => (
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 uppercase text-[10px] font-black">
+                    <th className="py-2 px-3 whitespace-nowrap">Tarjeta / Ticket</th>
+                    <th className="py-2 px-3 whitespace-nowrap">Comprador</th>
+                    <th className="py-2 px-3 text-right whitespace-nowrap">Importe</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {visibleBingo.map((tb) => (
+                    <tr
+                      key={tb.id}
+                      onClick={() => setSearchResult({ tipo: 'bingo', tarjetaBingo: tb })}
+                      className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition"
+                    >
+                      <td className="py-2.5 px-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                        Tarjeta #{String(tb.numeroTarjeta).padStart(3, '0')}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        {tb.comprador}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-amber-600 whitespace-nowrap">
+                        {formatPrecio(tb.precioCobrado)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            renderCards={(visibleBingo) => (
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {visibleBingo.map((tb) => (
+                  <div
+                    key={tb.id}
+                    className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40 px-2 rounded-lg cursor-pointer"
+                    onClick={() => setSearchResult({ tipo: 'bingo', tarjetaBingo: tb })}
+                  >
+                    <div>
+                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        Tarjeta #{String(tb.numeroTarjeta).padStart(3, '0')}
+                      </span>
+                      <span className="text-slate-600 dark:text-slate-400 ml-2">{tb.comprador}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-black text-amber-600">
+                        {formatPrecio(tb.precioCobrado)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-black text-amber-600">
-                      {formatPrecio(tb.precioCobrado)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          />
         </div>
       </div>
 
@@ -544,6 +800,7 @@ export const Verificacion: React.FC<VerificacionProps> = ({ config }) => {
         onClose={() => setIsModalOpen(false)}
         tipo={modalType}
         ticketVianda={selectedTicketPrint}
+        ticketEvento={selectedTicketEventoPrint}
         tarjetaBingo={selectedBingoPrint}
         config={config}
       />

@@ -20,8 +20,10 @@ export interface UserPermissions {
   puedeGestionarMinisterios: boolean;
   puedeRegistrarAsistencia: boolean;
   puedeVerMetricasIglesia: boolean;
+  puedeGestionarUsuarios: boolean;
   puedeVenderViandas: boolean;
   puedeVenderBingo: boolean;
+  puedeVenderTickets: boolean;
   puedeVerSorteos: boolean;
   puedeVerificacion: boolean;
   puedeAdministrar: boolean;
@@ -47,8 +49,10 @@ export const DEFAULT_PERMISOS_BY_ROLE: Record<UserRole, UserPermissions> = {
     puedeGestionarMinisterios: true,
     puedeRegistrarAsistencia: true,
     puedeVerMetricasIglesia: true,
+    puedeGestionarUsuarios: true,
     puedeVenderViandas: true,
     puedeVenderBingo: true,
+    puedeVenderTickets: true,
     puedeVerSorteos: true,
     puedeVerificacion: true,
     puedeAdministrar: true,
@@ -61,8 +65,10 @@ export const DEFAULT_PERMISOS_BY_ROLE: Record<UserRole, UserPermissions> = {
     puedeGestionarMinisterios: true,
     puedeRegistrarAsistencia: true,
     puedeVerMetricasIglesia: true,
+    puedeGestionarUsuarios: true,
     puedeVenderViandas: true,
     puedeVenderBingo: true,
+    puedeVenderTickets: true,
     puedeVerSorteos: true,
     puedeVerificacion: true,
     puedeAdministrar: true,
@@ -75,8 +81,10 @@ export const DEFAULT_PERMISOS_BY_ROLE: Record<UserRole, UserPermissions> = {
     puedeGestionarMinisterios: false,
     puedeRegistrarAsistencia: true,
     puedeVerMetricasIglesia: false,
+    puedeGestionarUsuarios: false,
     puedeVenderViandas: true,
     puedeVenderBingo: true,
+    puedeVenderTickets: true,
     puedeVerSorteos: false,
     puedeVerificacion: true,
     puedeAdministrar: false,
@@ -89,8 +97,10 @@ export const DEFAULT_PERMISOS_BY_ROLE: Record<UserRole, UserPermissions> = {
     puedeGestionarMinisterios: false,
     puedeRegistrarAsistencia: false,
     puedeVerMetricasIglesia: true,
+    puedeGestionarUsuarios: false,
     puedeVenderViandas: false,
     puedeVenderBingo: false,
+    puedeVenderTickets: false,
     puedeVerSorteos: true,
     puedeVerificacion: true,
     puedeAdministrar: false,
@@ -115,10 +125,18 @@ export const MODALIDADES_PAGO_COLORS: Record<ModalidadPago, string> = {
 };
 export type EstadoPago = 'pagado' | 'pendiente';
 
+export interface PrecioViandaItem {
+  id: string;
+  etiqueta: string; // ej. "General", "Socio", "Preventa", "Combo"
+  monto: number;
+}
+
 export interface ViandaProducto {
   id: string;
   nombre: string;
   descripcion?: string;
+  descripcionImpresion?: string; // Descripción que se mostrará en la impresión del ticket
+  precios?: PrecioViandaItem[]; // Lista dinámica de 1 o múltiples precios
   tieneDosPrecios: boolean;
   precio1: number;
   etiquetaPrecio1: string; // ej. "General" o "Precio 1"
@@ -128,9 +146,31 @@ export interface ViandaProducto {
   categoria?: string;
 }
 
+export function getPreciosVianda(v: ViandaProducto): PrecioViandaItem[] {
+  if (Array.isArray(v.precios) && v.precios.length > 0) {
+    return v.precios;
+  }
+  const list: PrecioViandaItem[] = [
+    {
+      id: 'p-1',
+      etiqueta: v.etiquetaPrecio1 || 'General',
+      monto: Number(v.precio1) || 0,
+    },
+  ];
+  if (v.tieneDosPrecios && v.precio2 !== undefined) {
+    list.push({
+      id: 'p-2',
+      etiqueta: v.etiquetaPrecio2 || 'Socio',
+      monto: Number(v.precio2) || 0,
+    });
+  }
+  return list;
+}
+
 export interface ItemVentaVianda {
   productoId: string;
   nombre: string;
+  descripcionImpresion?: string;
   precioUnitario: number;
   etiquetaPrecio: string; // "General", "Socio", etc.
   cantidad: number;
@@ -139,6 +179,8 @@ export interface ItemVentaVianda {
 
 export interface TicketVianda {
   id: string;
+  eventoId?: string;
+  nombreEvento?: string;
   numeroTicket: string; // ej. "V-1001"
   comprador: string;
   telefono?: string;
@@ -149,6 +191,73 @@ export interface TicketVianda {
   entregado: boolean;
   fecha: string; // ISO string
   fechaFormateada: string;
+  descripcionImpresion?: string; // Descripción visible en el ticket impreso
+  notas?: string;
+  vendedorEmail?: string;
+}
+
+// ---- MÓDULO DE VENTA DE TICKETS GENERALES / ENTRADAS / BONOS ----
+export interface TicketProducto {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  descripcionImpresion?: string; // Descripción que se verá en la impresión
+  precios?: PrecioViandaItem[];
+  tieneDosPrecios: boolean;
+  precio1: number;
+  etiquetaPrecio1: string;
+  precio2?: number;
+  etiquetaPrecio2?: string;
+  activo: boolean;
+  categoria?: string;
+}
+
+export function getPreciosTicket(t: TicketProducto): PrecioViandaItem[] {
+  if (Array.isArray(t.precios) && t.precios.length > 0) {
+    return t.precios;
+  }
+  const list: PrecioViandaItem[] = [
+    {
+      id: 'p-1',
+      etiqueta: t.etiquetaPrecio1 || 'General',
+      monto: Number(t.precio1) || 0,
+    },
+  ];
+  if (t.tieneDosPrecios && t.precio2 !== undefined) {
+    list.push({
+      id: 'p-2',
+      etiqueta: t.etiquetaPrecio2 || 'Promoción',
+      monto: Number(t.precio2) || 0,
+    });
+  }
+  return list;
+}
+
+export interface ItemVentaTicket {
+  productoId: string;
+  nombre: string;
+  descripcionImpresion?: string;
+  precioUnitario: number;
+  etiquetaPrecio: string;
+  cantidad: number;
+  subtotal: number;
+}
+
+export interface TicketEventoVenta {
+  id: string;
+  eventoId?: string;
+  nombreEvento?: string;
+  numeroTicket: string; // ej. "T-0001"
+  comprador: string;
+  telefono?: string;
+  items: ItemVentaTicket[];
+  total: number;
+  modalidadPago: ModalidadPago;
+  estadoPago: EstadoPago;
+  entregado: boolean;
+  fecha: string;
+  fechaFormateada: string;
+  descripcionImpresion?: string; // Descripción que se verá en la impresión
   notas?: string;
   vendedorEmail?: string;
 }
@@ -159,10 +268,13 @@ export interface TarjetaBingoPrecioConfig {
   etiquetaPrecio1: string; // ej. "General"
   precio2: number;
   etiquetaPrecio2: string; // ej. "Socio / Promo"
+  descripcionImpresion?: string; // Descripción que se verá en la impresión del ticket de bingo
 }
 
 export interface TarjetaBingoVenta {
   id: string;
+  eventoId?: string;
+  nombreEvento?: string;
   numeroTicket: string; // ej. "B-1001"
   numeroTarjeta: number; // ej. primera tarjeta o única
   numerosTarjetas?: number[]; // lista de todas las tarjetas compradas en este ticket, ej. [15, 16, 17]
@@ -176,6 +288,7 @@ export interface TarjetaBingoVenta {
   estadoPago: EstadoPago;
   fecha: string;
   fechaFormateada: string;
+  descripcionImpresion?: string; // Descripción que se verá en la impresión
   notas?: string;
   vendedorEmail?: string;
 }
@@ -192,8 +305,10 @@ export interface BingoState {
 
 export interface SorteoGanador {
   id: string;
+  eventoId?: string;
+  nombreEvento?: string;
   fecha: string;
-  origen: 'viandas' | 'bingo' | 'todos';
+  origen: 'viandas' | 'bingo' | 'tickets' | 'todos';
   ticketGanador: string;
   comprador: string;
   premio: string;
@@ -214,6 +329,10 @@ export interface ConfiguracionImpresion {
   mostrarCodigoBarras: boolean;
   mostrarMensajePie: boolean;
   modoAhorroPapel: boolean; // Espaciado ultra compacto sin líneas vacías
+  metodoImpresion?: 'bluetooth' | 'sistema'; // Modo de impresión configurado
+  anchoPapel?: '58mm' | '80mm'; // Ancho del rollo térmico para impresión Bluetooth / estándar
+  impresoraBluetoothNombre?: string; // Nombre de la impresora Bluetooth vinculada
+  impresoraConfigurada?: boolean; // Indica si la configuración de impresora ya fue establecida
 }
 
 export const DEFAULT_IMPRESION_CONFIG: ConfiguracionImpresion = {
@@ -228,6 +347,10 @@ export const DEFAULT_IMPRESION_CONFIG: ConfiguracionImpresion = {
   mostrarCodigoBarras: true,
   mostrarMensajePie: true,
   modoAhorroPapel: false,
+  metodoImpresion: 'bluetooth',
+  anchoPapel: '58mm',
+  impresoraBluetoothNombre: '',
+  impresoraConfigurada: false,
 };
 
 export function formatPrecio(monto: number): string {
@@ -240,14 +363,18 @@ export function formatPrecio(monto: number): string {
 }
 
 export interface ConfiguracionEvento {
+  id?: string;
   nombreEvento: string;
   subtitulo: string;
   fechaEvento: string;
   lugar: string;
   mensajeTicket: string;
+  activo?: boolean;
+  estado?: 'abierto' | 'finalizado';
   bingoPrecios: TarjetaBingoPrecioConfig;
   permitirVentaSinPagar: boolean;
   impresion?: ConfiguracionImpresion;
+  fechaCreacion?: string;
 }
 
 export interface FirebaseConfigParams {

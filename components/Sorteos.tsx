@@ -25,6 +25,8 @@ import {
   saveSorteo,
 } from '../lib/storage';
 import { sounds } from '../lib/soundEffects';
+import { useEventConfig } from '../lib/eventConfigContext';
+import { AdaptiveDataView } from './AdaptiveDataView';
 
 interface ParticipantItem {
   id: string;
@@ -37,6 +39,7 @@ interface ParticipantItem {
 }
 
 export const Sorteos: React.FC = () => {
+  const { config } = useEventConfig();
   const [ticketsViandas, setTicketsViandas] = useState<TicketVianda[]>([]);
   const [tarjetasBingo, setTarjetasBingo] = useState<TarjetaBingoVenta[]>([]);
   const [historialSorteos, setHistorialSorteos] = useState<SorteoGanador[]>([]);
@@ -68,13 +71,19 @@ export const Sorteos: React.FC = () => {
     loadData();
   }, []);
 
-  // Build eligible pool
+  const matchesActiveEvent = (item: { eventoId?: string }): boolean => {
+    if (!config.id) return true;
+    if (item.eventoId) return item.eventoId === config.id;
+    return config.id === 'evento-principal';
+  };
+
+  // Build eligible pool for the active event
   const getPool = (): ParticipantItem[] => {
     let pool: ParticipantItem[] = [];
 
     if (filtroOrigen === 'viandas' || filtroOrigen === 'todos') {
       const vItems: ParticipantItem[] = ticketsViandas
-        .filter((t) => (!soloPagados || t.estadoPago === 'pagado'))
+        .filter((t) => matchesActiveEvent(t) && (!soloPagados || t.estadoPago === 'pagado'))
         .map((t) => ({
           id: t.id,
           identificador: `Ticket ${t.numeroTicket}`,
@@ -88,7 +97,9 @@ export const Sorteos: React.FC = () => {
     }
 
     if (filtroOrigen === 'bingo' || filtroOrigen === 'todos') {
-      const eligibleBingo = tarjetasBingo.filter((b) => (!soloPagados || b.estadoPago === 'pagado'));
+      const eligibleBingo = tarjetasBingo.filter(
+        (b) => matchesActiveEvent(b) && (!soloPagados || b.estadoPago === 'pagado')
+      );
       eligibleBingo.forEach((b) => {
         const cards = b.numerosTarjetas && b.numerosTarjetas.length > 0 ? b.numerosTarjetas : [b.numeroTarjeta];
         cards.forEach((num) => {
@@ -153,6 +164,8 @@ export const Sorteos: React.FC = () => {
         const now = new Date();
         const nuevoSorteo: SorteoGanador = {
           id: 'sorteo-' + Date.now(),
+          eventoId: config.id || '',
+          nombreEvento: config.nombreEvento || '',
           fecha: now.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }),
           origen: filtroOrigen,
           ticketGanador: elegido.identificador,
@@ -395,7 +408,7 @@ export const Sorteos: React.FC = () => {
       </div>
 
       {/* History of Past Raffle Winners */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm mt-8">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm mt-8 space-y-4">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
@@ -410,38 +423,42 @@ export const Sorteos: React.FC = () => {
           </span>
         </div>
 
-        {historialSorteos.length === 0 ? (
-          <div className="py-8 text-center text-xs text-slate-400">
-            Aún no se ha realizado ningún sorteo.
-          </div>
-        ) : (
-          <div className="overflow-x-auto mt-3 rounded-2xl border border-slate-100 dark:border-slate-800">
-            <table className="w-full text-left text-xs min-w-[580px]">
+        <AdaptiveDataView
+          items={historialSorteos}
+          pageSize={15}
+          itemLabel="ganadores"
+          emptyState={
+            <div className="py-8 text-center text-xs text-slate-400">
+              Aún no se ha realizado ningún sorteo.
+            </div>
+          }
+          renderTable={(visibleSorteos) => (
+            <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase text-[10px] bg-slate-50/60 dark:bg-slate-800/40">
-                  <th className="py-2.5 px-3">Fecha</th>
-                  <th className="py-2.5 px-3">Premio</th>
-                  <th className="py-2.5 px-3">Ganador</th>
-                  <th className="py-2.5 px-3">Cupón Sorteado</th>
-                  <th className="py-2.5 px-3">Teléfono</th>
-                  <th className="py-2.5 px-3">Estado</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Fecha</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Premio</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Ganador</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Cupón Sorteado</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Teléfono</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                {historialSorteos.map((s) => (
+                {visibleSorteos.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                    <td className="py-2.5 px-3 text-slate-500 font-mono">{s.fecha}</td>
-                    <td className="py-2.5 px-3 font-bold text-rose-600 dark:text-rose-400">
+                    <td className="py-2.5 px-3 text-slate-500 font-mono whitespace-nowrap">{s.fecha}</td>
+                    <td className="py-2.5 px-3 font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">
                       {s.premio}
                     </td>
-                    <td className="py-2.5 px-3 font-extrabold text-slate-900 dark:text-white">
+                    <td className="py-2.5 px-3 font-extrabold text-slate-900 dark:text-white whitespace-nowrap">
                       {s.comprador}
                     </td>
-                    <td className="py-2.5 px-3 font-mono font-bold text-amber-600 dark:text-amber-400">
+                    <td className="py-2.5 px-3 font-mono font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
                       {s.ticketGanador}
                     </td>
-                    <td className="py-2.5 px-3 text-slate-500">{s.telefono || '—'}</td>
-                    <td className="py-2.5 px-3">
+                    <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{s.telefono || '—'}</td>
+                    <td className="py-2.5 px-3 whitespace-nowrap">
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
                         <CheckCircle className="w-3 h-3" /> Verificado
                       </span>
@@ -450,8 +467,39 @@ export const Sorteos: React.FC = () => {
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
+          )}
+          renderCards={(visibleSorteos) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {visibleSorteos.map((s) => (
+                <div
+                  key={s.id}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex flex-col justify-between gap-2.5"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-bold text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg">
+                        {s.ticketGanador}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                        <CheckCircle className="w-3 h-3" /> Verificado
+                      </span>
+                    </div>
+                    <h4 className="font-extrabold text-slate-900 dark:text-white text-sm mt-2">
+                      {s.comprador}
+                    </h4>
+                    <p className="text-xs font-bold text-rose-600 dark:text-rose-400 mt-0.5">
+                      🏆 {s.premio}
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[11px] text-slate-500">
+                    <span className="font-mono">{s.fecha}</span>
+                    {s.telefono && <span>📞 {s.telefono}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        />
       </div>
     </div>
   );

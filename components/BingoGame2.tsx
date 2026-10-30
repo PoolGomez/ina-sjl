@@ -511,7 +511,7 @@ export const BingoGame2: React.FC<BingoGame2Props> = () => {
 
           </button>
           <button id="btn-history" onClick={() => setShowHistory(true)} title="Historial" style={iconBtnStyle}><History size={18} /></button>
-          <a href="/transmision" target="_blank" rel="noopener noreferrer" title="Módulo de Transmisión en Vivo"
+          <a href="/system/transmision" target="_blank" rel="noopener noreferrer" title="Módulo de Transmisión en Vivo"
             style={{ ...iconBtnStyle, background: 'linear-gradient(135deg, #ef4444, #dc2626)', textDecoration: 'none' }}>
             <Radio size={18} />
           </a>

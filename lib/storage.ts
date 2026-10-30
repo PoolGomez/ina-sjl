@@ -13,6 +13,8 @@ import { initializeFirebase } from './firebase';
 import {
   ViandaProducto,
   TicketVianda,
+  TicketProducto,
+  TicketEventoVenta,
   TarjetaBingoVenta,
   TarjetaBingoPrecioConfig,
   BingoState,
@@ -23,6 +25,7 @@ import {
   UserRole,
   UserPermissions,
   ModalidadPagoConfig,
+  DEFAULT_IMPRESION_CONFIG,
 } from './types';
 
 // Default initial viandas (seeded to Firestore when collection is empty)
@@ -83,7 +86,7 @@ const DEFAULT_VIANDAS: ViandaProducto[] = [
   },
 ];
 
-const DEFAULT_BINGO_PRECIOS: TarjetaBingoPrecioConfig = {
+export const DEFAULT_BINGO_PRECIOS: TarjetaBingoPrecioConfig = {
   tieneDosPrecios: true,
   precio1: 2000,
   etiquetaPrecio1: 'General (1 Tarjeta)',
@@ -91,27 +94,18 @@ const DEFAULT_BINGO_PRECIOS: TarjetaBingoPrecioConfig = {
   etiquetaPrecio2: 'Promo Socio / Combo',
 };
 
-const DEFAULT_EVENT_CONFIG: ConfiguracionEvento = {
-  nombreEvento: 'GRAN BINGO Y ALMUERZO FAMILIAR INA',
-  subtitulo: 'Parroquia / Comunidad INA - Beneficio Anual',
-  fechaEvento: '2026-10-18',
-  lugar: 'Salón de Eventos Principal INA',
-  mensajeTicket: '¡Gracias por apoyar a nuestra comunidad! Conserve este ticket para sorteos.',
+export const EMPTY_EVENT_CONFIG: ConfiguracionEvento = {
+  id: '',
+  nombreEvento: '',
+  subtitulo: '',
+  fechaEvento: '',
+  lugar: '',
+  mensajeTicket: '',
+  activo: false,
+  estado: 'abierto',
   bingoPrecios: DEFAULT_BINGO_PRECIOS,
   permitirVentaSinPagar: true,
-  impresion: {
-    mostrarLogo: true,
-    mostrarEncabezado: true,
-    mostrarSubtitulo: true,
-    mostrarLugar: true,
-    mostrarFechaHora: true,
-    mostrarTelefono: true,
-    mostrarModalidadPago: true,
-    mostrarEstadoPago: true,
-    mostrarCodigoBarras: true,
-    mostrarMensajePie: true,
-    modoAhorroPapel: false,
-  },
+  impresion: { ...DEFAULT_IMPRESION_CONFIG },
 };
 
 const DEFAULT_BINGO_STATE: BingoState = {
@@ -284,6 +278,150 @@ export async function updateTicketViandaEstado(
   return item;
 }
 
+// ----------------- CATÁLOGO Y VENTA DE TICKETS GENERALES -----------------
+const DEFAULT_TICKETS_PRODUCTOS: TicketProducto[] = [
+  {
+    id: 't-prod-1',
+    nombre: 'Entrada General al Evento',
+    descripcion: 'Ticket de acceso e ingreso general al evento.',
+    descripcionImpresion: 'Válido para 1 ingreso general al evento',
+    tieneDosPrecios: true,
+    precio1: 20,
+    etiquetaPrecio1: 'General',
+    precio2: 15,
+    etiquetaPrecio2: 'Preventa / Socio',
+    activo: true,
+    categoria: 'Entradas',
+  },
+  {
+    id: 't-prod-2',
+    nombre: 'Bono de Colaboración',
+    descripcion: 'Bono contribución para apoyar las actividades de la comunidad.',
+    descripcionImpresion: 'Bono colaboración pro-fondos del evento',
+    tieneDosPrecios: false,
+    precio1: 10,
+    etiquetaPrecio1: 'Colaboración',
+    activo: true,
+    categoria: 'Bonos',
+  },
+  {
+    id: 't-prod-3',
+    nombre: 'Ticket de Juegos / Kermesse',
+    descripcion: 'Ticket válido para participar en stands de juegos o actividades.',
+    descripcionImpresion: 'Canjeable en stands de juegos autorizados',
+    tieneDosPrecios: false,
+    precio1: 5,
+    etiquetaPrecio1: 'Unitario',
+    activo: true,
+    categoria: 'Juegos',
+  },
+];
+
+export async function getTicketsProductos(): Promise<TicketProducto[]> {
+  const { db, isConfigured } = initializeFirebase();
+  if (isConfigured && db) {
+    try {
+      const snap = await getDocs(collection(db, 'tickets_productos'));
+      if (!snap.empty) {
+        return snap.docs.map((d) => ({ id: d.id, ...d.data() } as TicketProducto));
+      } else {
+        for (const item of DEFAULT_TICKETS_PRODUCTOS) {
+          await setDoc(doc(db, 'tickets_productos', item.id), item);
+        }
+        return DEFAULT_TICKETS_PRODUCTOS;
+      }
+    } catch (e) {
+      console.error('Firestore getTicketsProductos error:', e);
+    }
+  }
+  return [];
+}
+
+export async function saveTicketProducto(item: TicketProducto): Promise<void> {
+  const { db, isConfigured } = initializeFirebase();
+  if (isConfigured && db) {
+    try {
+      const cleanData = Object.fromEntries(
+        Object.entries(item).filter(([, v]) => v !== undefined)
+      ) as TicketProducto;
+      await setDoc(doc(db, 'tickets_productos', item.id), cleanData);
+    } catch (e) {
+      console.error('Firestore saveTicketProducto error:', e);
+    }
+  }
+}
+
+export async function deleteTicketProducto(id: string): Promise<void> {
+  const { db, isConfigured } = initializeFirebase();
+  if (isConfigured && db) {
+    try {
+      await deleteDoc(doc(db, 'tickets_productos', id));
+    } catch (e) {
+      console.error('Firestore deleteTicketProducto error:', e);
+    }
+  }
+}
+
+export async function getTicketsEventoVentas(): Promise<TicketEventoVenta[]> {
+  const { db, isConfigured } = initializeFirebase();
+  if (isConfigured && db) {
+    try {
+      const snap = await getDocs(collection(db, 'tickets_ventas'));
+      if (!snap.empty) {
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as TicketEventoVenta));
+        return list.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+      }
+    } catch (e) {
+      console.error('Firestore getTicketsEventoVentas error:', e);
+    }
+  }
+  return [];
+}
+
+export async function saveTicketEventoVenta(ticket: TicketEventoVenta): Promise<void> {
+  const { db, isConfigured } = initializeFirebase();
+  if (isConfigured && db) {
+    try {
+      const cleanData = Object.fromEntries(
+        Object.entries(ticket).filter(([, v]) => v !== undefined)
+      ) as TicketEventoVenta;
+      await setDoc(doc(db, 'tickets_ventas', ticket.id), cleanData);
+    } catch (e) {
+      console.error('Firestore saveTicketEventoVenta error:', e);
+    }
+  }
+}
+
+export async function updateTicketEventoEstado(
+  ticketId: string,
+  nuevoEstado: EstadoPago,
+  entregado?: boolean
+): Promise<TicketEventoVenta | null> {
+  const current = await getTicketsEventoVentas();
+  const index = current.findIndex(
+    (t) => t.id === ticketId || t.numeroTicket.toUpperCase() === ticketId.toUpperCase()
+  );
+  if (index === -1) return null;
+
+  const item = { ...current[index], estadoPago: nuevoEstado };
+  if (entregado !== undefined) {
+    item.entregado = entregado;
+  }
+
+  const { db, isConfigured } = initializeFirebase();
+  if (isConfigured && db) {
+    try {
+      await updateDoc(doc(db, 'tickets_ventas', item.id), {
+        estadoPago: nuevoEstado,
+        ...(entregado !== undefined ? { entregado } : {}),
+      });
+    } catch (e) {
+      console.error('Firestore updateTicketEventoEstado error:', e);
+    }
+  }
+  return item;
+}
+
 // ----------------- TARJETAS DE BINGO -----------------
 export async function getTarjetasBingoVentas(): Promise<TarjetaBingoVenta[]> {
   const { db, isConfigured } = initializeFirebase();
@@ -344,39 +482,202 @@ export async function updateTarjetaBingoEstado(
   return item;
 }
 
-// ----------------- CONFIGURACIÓN DE EVENTO -----------------
-export async function getConfiguracionEvento(): Promise<ConfiguracionEvento> {
-  let config: ConfiguracionEvento = DEFAULT_EVENT_CONFIG;
+// ----------------- GESTIÓN DE EVENTOS (MULTI-EVENTO EN BASE DE DATOS) -----------------
+function normalizeEvento(raw: Partial<ConfiguracionEvento>, fallbackId?: string): ConfiguracionEvento {
+  return {
+    id: raw.id || fallbackId || 'evento-principal',
+    nombreEvento: raw.nombreEvento || '',
+    subtitulo: raw.subtitulo || '',
+    fechaEvento: raw.fechaEvento || '',
+    lugar: raw.lugar || '',
+    mensajeTicket: raw.mensajeTicket || '',
+    activo: Boolean(raw.activo),
+    estado: raw.estado || (raw.activo ? 'abierto' : 'finalizado'),
+    fechaCreacion: raw.fechaCreacion || '',
+    bingoPrecios: raw.bingoPrecios || { ...DEFAULT_BINGO_PRECIOS },
+    permitirVentaSinPagar: raw.permitirVentaSinPagar ?? true,
+    impresion: raw.impresion ? { ...DEFAULT_IMPRESION_CONFIG, ...raw.impresion } : { ...DEFAULT_IMPRESION_CONFIG },
+  };
+}
+
+export async function getEventos(): Promise<ConfiguracionEvento[]> {
   const { db, isConfigured } = initializeFirebase();
+  if (!isConfigured || !db) return [];
+
+  try {
+    const snap = await getDocs(collection(db, 'eventos'));
+    if (!snap.empty) {
+      const list = snap.docs.map((d) =>
+        normalizeEvento({ ...(d.data() as ConfiguracionEvento), id: d.id }, d.id)
+      );
+      return list.sort((a, b) => {
+        if (a.activo && !b.activo) return -1;
+        if (!a.activo && b.activo) return 1;
+        return (b.fechaEvento || '').localeCompare(a.fechaEvento || '');
+      });
+    }
+
+    // Migrate legacy configuracion/evento_main if present in Firestore
+    const mainSnap = await getDoc(doc(db, 'configuracion', 'evento_main'));
+    if (mainSnap.exists()) {
+      const legacyData = mainSnap.data() as ConfiguracionEvento;
+      if (legacyData && legacyData.nombreEvento) {
+        const migrated = normalizeEvento(
+          {
+            ...legacyData,
+            id: legacyData.id || 'evento-principal',
+            activo: legacyData.activo ?? true,
+            estado: legacyData.estado || 'abierto',
+          },
+          legacyData.id || 'evento-principal'
+        );
+        await setDoc(doc(db, 'eventos', migrated.id!), migrated);
+        return [migrated];
+      }
+    }
+  } catch (e) {
+    console.error('Firestore getEventos error:', e);
+  }
+  return [];
+}
+
+export async function saveEvento(evento: ConfiguracionEvento): Promise<ConfiguracionEvento> {
+  const { db, isConfigured } = initializeFirebase();
+  const id = evento.id || `evento-${Date.now()}`;
+  const normalized = normalizeEvento(
+    {
+      ...evento,
+      id,
+      fechaCreacion: evento.fechaCreacion || new Date().toISOString(),
+    },
+    id
+  );
+
   if (isConfigured && db) {
     try {
-      const mainSnap = await getDoc(doc(db, 'configuracion', 'evento_main'));
-      if (mainSnap.exists()) {
-        config = mainSnap.data() as ConfiguracionEvento;
+      if (normalized.activo) {
+        // Deactivate any other active event so only one event is active at a time
+        const existingSnap = await getDocs(collection(db, 'eventos'));
+        for (const d of existingSnap.docs) {
+          if (d.id !== id && d.data().activo) {
+            await updateDoc(doc(db, 'eventos', d.id), { activo: false });
+          }
+        }
+        await setDoc(doc(db, 'configuracion', 'evento_main'), normalized);
       } else {
-        const snap = await getDocs(collection(db, 'configuracion'));
-        if (!snap.empty) {
-          config = snap.docs[0].data() as ConfiguracionEvento;
-        } else {
-          await setDoc(doc(db, 'configuracion', 'evento_main'), DEFAULT_EVENT_CONFIG);
+        // If this event was previously the active one in evento_main, sync it
+        const mainSnap = await getDoc(doc(db, 'configuracion', 'evento_main'));
+        if (mainSnap.exists() && mainSnap.data()?.id === id) {
+          await setDoc(doc(db, 'configuracion', 'evento_main'), normalized);
         }
       }
+
+      await setDoc(doc(db, 'eventos', id), normalized);
     } catch (e) {
-      console.error('Firestore getConfig error:', e);
+      console.error('Firestore saveEvento error:', e);
     }
   }
+  return normalized;
+}
 
-  if (!config.impresion) {
-    config.impresion = { ...DEFAULT_EVENT_CONFIG.impresion! };
+export async function activarEvento(eventoId: string): Promise<ConfiguracionEvento | null> {
+  const { db, isConfigured } = initializeFirebase();
+  if (!isConfigured || !db) return null;
+
+  try {
+    const snap = await getDocs(collection(db, 'eventos'));
+    let activated: ConfiguracionEvento | null = null;
+
+    for (const d of snap.docs) {
+      const isTarget = d.id === eventoId;
+      if (isTarget) {
+        const updated = normalizeEvento(
+          {
+            ...(d.data() as ConfiguracionEvento),
+            id: d.id,
+            activo: true,
+            estado: 'abierto',
+          },
+          d.id
+        );
+        await setDoc(doc(db, 'eventos', d.id), updated);
+        await setDoc(doc(db, 'configuracion', 'evento_main'), updated);
+        activated = updated;
+      } else if (d.data().activo) {
+        await updateDoc(doc(db, 'eventos', d.id), { activo: false });
+      }
+    }
+    return activated;
+  } catch (e) {
+    console.error('Firestore activarEvento error:', e);
+    return null;
   }
-  return config;
+}
+
+export async function desactivarEvento(eventoId: string): Promise<void> {
+  const { db, isConfigured } = initializeFirebase();
+  if (!isConfigured || !db) return;
+
+  try {
+    await updateDoc(doc(db, 'eventos', eventoId), {
+      activo: false,
+      estado: 'finalizado',
+    });
+    const mainSnap = await getDoc(doc(db, 'configuracion', 'evento_main'));
+    if (mainSnap.exists() && mainSnap.data()?.id === eventoId) {
+      await setDoc(doc(db, 'configuracion', 'evento_main'), {
+        ...EMPTY_EVENT_CONFIG,
+        activo: false,
+      });
+    }
+  } catch (e) {
+    console.error('Firestore desactivarEvento error:', e);
+  }
+}
+
+export async function deleteEvento(eventoId: string): Promise<void> {
+  const { db, isConfigured } = initializeFirebase();
+  if (!isConfigured || !db) return;
+
+  try {
+    await deleteDoc(doc(db, 'eventos', eventoId));
+    const remaining = await getEventos();
+    const active = remaining.find((e) => e.activo);
+    if (active) {
+      await setDoc(doc(db, 'configuracion', 'evento_main'), active);
+    } else {
+      await setDoc(doc(db, 'configuracion', 'evento_main'), EMPTY_EVENT_CONFIG);
+    }
+  } catch (e) {
+    console.error('Firestore deleteEvento error:', e);
+  }
+}
+
+export async function getConfiguracionEvento(): Promise<ConfiguracionEvento> {
+  const eventos = await getEventos();
+  const active = eventos.find((e) => e.activo);
+  if (active) {
+    return active;
+  }
+  return { ...EMPTY_EVENT_CONFIG };
 }
 
 export async function saveConfiguracionEvento(config: ConfiguracionEvento): Promise<void> {
   const { db, isConfigured } = initializeFirebase();
   if (isConfigured && db) {
     try {
-      await setDoc(doc(db, 'configuracion', 'evento_main'), config);
+      if (config.id) {
+        await saveEvento(config);
+      } else {
+        const currentActive = await getConfiguracionEvento();
+        if (currentActive.id) {
+          await saveEvento({ ...config, id: currentActive.id, activo: true });
+        } else if (config.nombreEvento) {
+          await saveEvento({ ...config, id: `evento-${Date.now()}`, activo: true, estado: 'abierto' });
+        } else {
+          await setDoc(doc(db, 'configuracion', 'evento_main'), config);
+        }
+      }
     } catch (e) {
       console.error('Firestore saveConfig error:', e);
     }

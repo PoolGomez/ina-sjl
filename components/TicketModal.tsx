@@ -1,21 +1,37 @@
 'use client';
 
-import React, { useEffect } from 'react';
-import { Printer, X, CheckCircle, Clock, UtensilsCrossed, Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  Printer,
+  X,
+  CheckCircle,
+  Clock,
+  UtensilsCrossed,
+  Sparkles,
+  RefreshCw,
+  AlertCircle,
+  Ticket,
+} from 'lucide-react';
 import {
   TicketVianda,
   TarjetaBingoVenta,
+  TicketEventoVenta,
   ConfiguracionEvento,
   DEFAULT_IMPRESION_CONFIG,
   formatPrecio,
 } from '../lib/types';
+import {
+  printTicketBluetooth,
+  getPrintingConfigStatus,
+} from '../lib/bluetoothPrinter';
 
 interface TicketModalProps {
   isOpen: boolean;
   onClose: () => void;
-  tipo: 'vianda' | 'bingo';
+  tipo: 'vianda' | 'bingo' | 'ticket';
   ticketVianda?: TicketVianda | null;
   tarjetaBingo?: TarjetaBingoVenta | null;
+  ticketEvento?: TicketEventoVenta | null;
   config: ConfiguracionEvento;
 }
 
@@ -25,11 +41,30 @@ export const TicketModal: React.FC<TicketModalProps> = ({
   tipo,
   ticketVianda,
   tarjetaBingo,
+  ticketEvento,
   config,
 }) => {
-  // Close on Escape key and prevent background scroll
+  const imp = {
+    ...DEFAULT_IMPRESION_CONFIG,
+    ...(config.impresion || {}),
+  };
+  const anchoPapel = imp.anchoPapel || '58mm';
+
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Sync configuration status when modal opens
   useEffect(() => {
     if (!isOpen) return;
+    setSuccessMsg(null);
+    const status = getPrintingConfigStatus(config);
+    if (!status.isConfigured) {
+      setErrorMsg(status.errorMessage);
+    } else {
+      setErrorMsg(null);
+    }
+
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -40,33 +75,33 @@ export const TicketModal: React.FC<TicketModalProps> = ({
       window.removeEventListener('keydown', handleEsc);
       document.body.style.overflow = originalOverflow;
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, config]);
 
   if (!isOpen) return null;
 
   const isVianda = tipo === 'vianda' && ticketVianda;
   const isBingo = tipo === 'bingo' && tarjetaBingo;
-  const imp = config.impresion || DEFAULT_IMPRESION_CONFIG;
+  const isTicket = tipo === 'ticket' && ticketEvento;
 
-  const ticketNumero = isVianda ? ticketVianda.numeroTicket : isBingo ? tarjetaBingo.numeroTicket : '';
-  const comprador = isVianda
-    ? ticketVianda.comprador || 'Al Portador'
-    : isBingo
-    ? tarjetaBingo.comprador || 'Al Portador'
-    : 'Al Portador';
-  const telefono = isVianda ? ticketVianda.telefono : isBingo ? tarjetaBingo.telefono : '';
-  const fecha = isVianda ? ticketVianda.fechaFormateada : isBingo ? tarjetaBingo.fechaFormateada : '';
-  const estadoPago = isVianda ? ticketVianda.estadoPago : isBingo ? tarjetaBingo.estadoPago : 'pagado';
-  const modalidadPago = isVianda ? ticketVianda.modalidadPago : isBingo ? tarjetaBingo.modalidadPago : 'efectivo';
+  const activeDoc = isVianda ? ticketVianda : isBingo ? tarjetaBingo : isTicket ? ticketEvento : null;
 
-  const handlePrint = () => {
+  const ticketNumero = activeDoc?.numeroTicket || '';
+  const comprador = activeDoc?.comprador || 'Al Portador';
+  const telefono = activeDoc?.telefono || '';
+  const fecha = activeDoc?.fechaFormateada || '';
+  const estadoPago = activeDoc?.estadoPago || 'pagado';
+  const modalidadPago = activeDoc?.modalidadPago || 'efectivo';
+  const descripcionImpresion = isBingo
+    ? tarjetaBingo.descripcionImpresion || config.bingoPrecios?.descripcionImpresion || ''
+    : activeDoc?.descripcionImpresion || '';
+
+  const handleSystemPrint = () => {
     const content = document.getElementById('printable-ticket');
     if (!content) {
       window.print();
       return;
     }
 
-    // Create an isolated printing iframe to guarantee the print preview is never blank
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
     iframe.style.right = '0';
@@ -94,7 +129,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({
           <style>
             @page {
               margin: ${isCompact ? '2mm' : '4mm'};
-              size: auto;
+              size: ${anchoPapel} auto;
             }
             body {
               font-family: 'Courier New', Courier, monospace, -apple-system, sans-serif;
@@ -104,7 +139,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({
               margin: 0;
               padding: ${isCompact ? '4px' : '8px'};
               line-height: ${isCompact ? '1.15' : '1.35'};
-              max-width: 360px;
+              max-width: ${anchoPapel === '58mm' ? '220px' : '320px'};
               margin-left: auto;
               margin-right: auto;
             }
@@ -169,6 +204,54 @@ export const TicketModal: React.FC<TicketModalProps> = ({
     }, 250);
   };
 
+  const handlePrint = async () => {
+    setSuccessMsg(null);
+    const status = getPrintingConfigStatus(config);
+
+    if (!status.isConfigured) {
+      setErrorMsg(
+        status.errorMessage ||
+          'La impresora no está configurada. Configúrala en el módulo Opciones de Impresión.'
+      );
+      return;
+    }
+
+    if (status.metodo === 'sistema') {
+      setErrorMsg(null);
+      handleSystemPrint();
+      return;
+    }
+
+    // Método configurado: Impresora Térmica Bluetooth
+    setIsPrinting(true);
+    setErrorMsg(null);
+    try {
+      const result = await printTicketBluetooth({
+        tipo,
+        ticketVianda,
+        tarjetaBingo,
+        ticketEvento,
+        config,
+        anchoPapel,
+      });
+      setSuccessMsg(`¡Ticket impreso en ${result.printerName}!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.toLowerCase().includes('cancel')) {
+        setErrorMsg(
+          'No se completó la conexión con la impresora Bluetooth. Verifica su vinculación en Opciones de Impresión.'
+        );
+      } else {
+        setErrorMsg(
+          msg ||
+            'No se pudo imprimir en la impresora Bluetooth. Verifica que esté encendida y configurada en Opciones de Impresión.'
+        );
+      }
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
   const hasMultipleBingoCards =
     isBingo && tarjetaBingo.numerosTarjetas && tarjetaBingo.numerosTarjetas.length > 1;
 
@@ -182,21 +265,28 @@ export const TicketModal: React.FC<TicketModalProps> = ({
       }}
     >
       <div className="relative w-full max-w-md max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200 text-slate-800 print:shadow-none print:border-none print:max-w-full flex flex-col">
-        {/* Modal Actions Header - Sticky & Hidden in Print */}
+        {/* Modal Actions Header - Only 1 "Imprimir" button */}
         <div className="flex items-center justify-between px-5 py-3.5 bg-slate-900 text-white print:hidden flex-shrink-0">
           <div className="flex items-center gap-2">
             <Printer className="w-5 h-5 text-amber-400" />
-            <span className="font-semibold text-sm">Comprobante de Venta Listo</span>
+            <span className="font-semibold text-sm">Comprobante de Venta</span>
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handlePrint}
-              className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg text-xs flex items-center gap-1.5 shadow-sm transition"
+              disabled={isPrinting}
+              className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 font-black rounded-lg text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer"
             >
-              <Printer className="w-3.5 h-3.5" />
+              {isPrinting ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Printer className="w-3.5 h-3.5" />
+              )}
               Imprimir
             </button>
             <button
+              type="button"
               onClick={onClose}
               className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition"
             >
@@ -204,6 +294,22 @@ export const TicketModal: React.FC<TicketModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Red Alert Message when Printer is Not Configured or Print Fails */}
+        {errorMsg && (
+          <div className="mx-4 mt-3 px-3.5 py-2.5 bg-red-50 border border-red-300 rounded-xl flex items-start gap-2 text-red-700 text-xs font-semibold print:hidden flex-shrink-0">
+            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+            <span className="leading-snug">{errorMsg}</span>
+          </div>
+        )}
+
+        {/* Brief confirmation message when printed via Bluetooth */}
+        {successMsg && !errorMsg && (
+          <div className="mx-4 mt-3 px-3.5 py-2 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center gap-2 text-emerald-800 text-xs font-semibold print:hidden flex-shrink-0">
+            <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+        )}
 
         {/* Printable Ticket Receipt - Scrollable */}
         <div
@@ -277,19 +383,22 @@ export const TicketModal: React.FC<TicketModalProps> = ({
                 <UtensilsCrossed className="w-3.5 h-3.5 text-amber-600" />
                 DETALLE DE VIANDAS
               </div>
-              <div className="space-y-1 text-xs">
-                {ticketVianda.items.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-start">
-                    <div>
-                      <span className="font-bold text-slate-900">{item.cantidad}x </span>
-                      <span>{item.nombre}</span>
-                      <span className="text-[10px] text-slate-500 ml-1">({item.etiquetaPrecio})</span>
+              <div className="space-y-1.5 text-xs">
+                {ticketVianda.items.map((item, idx) => {
+                  const nombreImpreso = item.descripcionImpresion?.trim() || item.nombre;
+                  return (
+                    <div key={idx} className="flex justify-between items-start">
+                      <div>
+                        <span className="font-bold text-slate-900">{item.cantidad}x </span>
+                        <span>{nombreImpreso}</span>
+                        <span className="text-[10px] text-slate-500 ml-1">({item.etiquetaPrecio})</span>
+                      </div>
+                      <span className="font-bold text-slate-900 whitespace-nowrap ml-2">
+                        {formatPrecio(item.subtotal)}
+                      </span>
                     </div>
-                    <span className="font-bold text-slate-900 whitespace-nowrap ml-2">
-                      {formatPrecio(item.subtotal)}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="pt-2 border-t border-slate-200 flex justify-between items-center text-sm font-black text-slate-900">
@@ -301,18 +410,52 @@ export const TicketModal: React.FC<TicketModalProps> = ({
             </div>
           )}
 
+          {/* Ticket Body: Venta de Tickets Generales */}
+          {isTicket && (
+            <div className={`border-b border-dashed border-slate-300 space-y-1.5 ${isCompact ? 'pb-2' : 'pb-3'}`}>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                <Ticket className="w-3.5 h-3.5 text-teal-600" />
+                DETALLE DE TICKETS
+              </div>
+              <div className="space-y-1.5 text-xs">
+                {ticketEvento.items.map((item, idx) => {
+                  const nombreImpreso = item.descripcionImpresion?.trim() || item.nombre;
+                  return (
+                    <div key={idx} className="flex justify-between items-start">
+                      <div>
+                        <span className="font-bold text-slate-900">{item.cantidad}x </span>
+                        <span>{nombreImpreso}</span>
+                        <span className="text-[10px] text-slate-500 ml-1">({item.etiquetaPrecio})</span>
+                      </div>
+                      <span className="font-bold text-slate-900 whitespace-nowrap ml-2">
+                        {formatPrecio(item.subtotal)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 flex justify-between items-center text-sm font-black text-slate-900">
+                <span>TOTAL A PAGAR:</span>
+                <span className="text-teal-700 font-extrabold text-base">
+                  {formatPrecio(ticketEvento.total)}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Ticket Body: Tarjetas de Bingo (1 o Múltiples) */}
           {isBingo && (
             <div className={`border-b border-dashed border-slate-300 text-center space-y-2 ${isCompact ? 'pb-2' : 'pb-4'}`}>
-              <div className="text-xs font-bold text-slate-600 flex items-center justify-center gap-1">
+              <div className="text-xs font-bold text-slate-600 flex items-center justify-center gap-1 uppercase">
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                TARJETAS DE BINGO OFICIALES
+                {descripcionImpresion.trim() || 'TARJETAS DE BINGO OFICIALES'}
               </div>
 
               {hasMultipleBingoCards ? (
                 <div className={`bg-indigo-50 border border-indigo-200 rounded-xl ${isCompact ? 'p-2' : 'py-3 px-4'}`}>
                   <div className="text-[11px] uppercase text-indigo-700 font-bold">
-                    {tarjetaBingo.numerosTarjetas!.length} TARJETAS ASIGNADAS
+                    {tarjetaBingo.numerosTarjetas!.length} {descripcionImpresion.trim() ? descripcionImpresion.trim().toUpperCase() : 'TARJETAS ASIGNADAS'}
                   </div>
                   <div className="flex flex-wrap items-center justify-center gap-1 py-1">
                     {tarjetaBingo.numerosTarjetas!.map((num) => (
@@ -330,7 +473,9 @@ export const TicketModal: React.FC<TicketModalProps> = ({
                 </div>
               ) : (
                 <div className={`bg-indigo-50 border border-indigo-200 rounded-xl ${isCompact ? 'py-1.5 px-3' : 'py-3 px-4'}`}>
-                  <div className="text-[10px] uppercase text-indigo-700 font-bold">NÚMERO ASIGNADO</div>
+                  <div className="text-[10px] uppercase text-indigo-700 font-bold">
+                    {descripcionImpresion.trim() ? descripcionImpresion.trim().toUpperCase() : 'NÚMERO ASIGNADO'}
+                  </div>
                   <div className="text-3xl font-black text-indigo-900 tracking-tight">
                     #{String(tarjetaBingo.numeroTarjeta).padStart(3, '0')}
                   </div>
@@ -397,14 +542,15 @@ export const TicketModal: React.FC<TicketModalProps> = ({
           )}
         </div>
 
-        {/* Footer print note */}
+        {/* Clean Footer */}
         <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-between items-center print:hidden flex-shrink-0">
-          <span className="text-xs text-slate-600">
-            {imp.modoAhorroPapel ? 'Modo Ultra Compacto Activo' : 'Apto térmica 80mm/58mm o A4'}
+          <span className="text-xs text-slate-500">
+            {imp.modoAhorroPapel ? 'Modo Compacto' : `Formato ${anchoPapel}`}
           </span>
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-semibold transition"
+            className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-semibold transition cursor-pointer"
           >
             Cerrar
           </button>

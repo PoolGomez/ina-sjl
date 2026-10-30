@@ -20,6 +20,7 @@ import {
 } from '../../core/container';
 import { ResumenMetricasAsistencia } from '../../core/application/use-cases/CalcularMetricasAsistenciaUseCase';
 import { ALCANCE_REUNION_LABELS } from '../../core/domain/entities/asistencia';
+import { AdaptiveDataView } from '../AdaptiveDataView';
 
 export const MetricasAsistenciaModule: React.FC = () => {
   const [resumen, setResumen] = useState<ResumenMetricasAsistencia | null>(null);
@@ -235,7 +236,7 @@ export const MetricasAsistenciaModule: React.FC = () => {
             </div>
             <div>
               <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
-                Frecuencia de Asistencia por Miembro
+                Frecuencia de Asistencia por Miembro ({filteredFrecuencia.length})
               </h3>
               <p className="text-xs text-slate-500">
                 Historial individual sobre las reuniones en las que estuvo convocado
@@ -264,46 +265,83 @@ export const MetricasAsistenciaModule: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px] font-black">
-                <th className="py-3 px-3">Miembro</th>
-                <th className="py-3 px-3">Sede</th>
-                <th className="py-3 px-3 text-center">Convocado</th>
-                <th className="py-3 px-3 text-center">Presente</th>
-                <th className="py-3 px-3 text-right">% Asistencia</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
-              {filteredFrecuencia.map((item) => (
-                <tr key={item.miembroId} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                  <td className="py-3 px-3 font-bold text-slate-900 dark:text-white">
-                    {item.nombreCompleto}
-                  </td>
-                  <td className="py-3 px-3 text-slate-500">{item.sedeNombre}</td>
-                  <td className="py-3 px-3 text-center font-bold">{item.reunionesConvocado}</td>
-                  <td className="py-3 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400">
-                    {item.reunionesPresente}
-                  </td>
-                  <td className="py-3 px-3 text-right">
-                    <span
-                      className={`inline-block px-2.5 py-0.5 rounded-full font-black text-[11px] ${
-                        item.porcentajeAsistencia >= 75
-                          ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                          : item.porcentajeAsistencia >= 50
-                          ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
-                          : 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
-                      }`}
-                    >
-                      {item.porcentajeAsistencia}%
-                    </span>
-                  </td>
+        <AdaptiveDataView
+          items={filteredFrecuencia}
+          pageSize={20}
+          itemLabel="miembros"
+          renderTable={(visibleItems) => (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px] font-black">
+                  <th className="py-3 px-4 whitespace-nowrap">Miembro</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Sede</th>
+                  <th className="py-3 px-4 text-center whitespace-nowrap">Convocado</th>
+                  <th className="py-3 px-4 text-center whitespace-nowrap">Presente</th>
+                  <th className="py-3 px-4 text-right whitespace-nowrap">% Asistencia</th>
                 </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
+                {visibleItems.map((item) => (
+                  <tr key={item.miembroId} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                    <td className="py-3 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                      {item.nombreCompleto}
+                    </td>
+                    <td className="py-3 px-4 text-slate-500 whitespace-nowrap">{item.sedeNombre}</td>
+                    <td className="py-3 px-4 text-center font-bold whitespace-nowrap">{item.reunionesConvocado}</td>
+                    <td className="py-3 px-4 text-center font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                      {item.reunionesPresente}
+                    </td>
+                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                      <span
+                        className={`inline-block px-2.5 py-0.5 rounded-full font-black text-[11px] ${
+                          item.porcentajeAsistencia >= 75
+                            ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                            : item.porcentajeAsistencia >= 50
+                            ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                            : 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                        }`}
+                      >
+                        {item.porcentajeAsistencia}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          renderCards={(visibleItems) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {visibleItems.map((item) => (
+                <div
+                  key={item.miembroId}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-extrabold text-slate-900 dark:text-white text-xs truncate">
+                      {item.nombreCompleto}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-0.5 truncate">{item.sedeNombre}</p>
+                    <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-500">
+                      <span>Convocado: <strong className="text-slate-700 dark:text-slate-200">{item.reunionesConvocado}</strong></span>
+                      <span>Presente: <strong className="text-emerald-600 dark:text-emerald-400">{item.reunionesPresente}</strong></span>
+                    </div>
+                  </div>
+                  <span
+                    className={`flex-shrink-0 px-3 py-1 rounded-full font-black text-xs ${
+                      item.porcentajeAsistencia >= 75
+                        ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                        : item.porcentajeAsistencia >= 50
+                        ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                        : 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                    }`}
+                  >
+                    {item.porcentajeAsistencia}%
+                  </span>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          )}
+        />
       </div>
     </div>
   );

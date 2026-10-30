@@ -18,6 +18,7 @@ import {
   Plus,
   X,
   Layers,
+  FileText,
 } from 'lucide-react';
 import {
   TarjetaBingoVenta,
@@ -35,6 +36,7 @@ import {
 } from '../lib/storage';
 import { useAuth } from '../lib/authContext';
 import { TicketModal } from './TicketModal';
+import { AdaptiveDataView } from './AdaptiveDataView';
 
 interface BingoSalesProps {
   config: ConfiguracionEvento;
@@ -45,6 +47,9 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
   const [tarjetas, setTarjetas] = useState<TarjetaBingoVenta[]>([]);
   const [comprador, setComprador] = useState('');
   const [telefono, setTelefono] = useState('');
+  const [descripcionImpresion, setDescripcionImpresion] = useState(
+    config.bingoPrecios?.descripcionImpresion || ''
+  );
   const [numeroTarjetaInput, setNumeroTarjetaInput] = useState<string>('');
   const [selectedCards, setSelectedCards] = useState<number[]>([]);
   const [mantenerComprador, setMantenerComprador] = useState(false);
@@ -60,7 +65,18 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
   const [selectedTarjetaPrint, setSelectedTarjetaPrint] = useState<TarjetaBingoVenta | null>(null);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
 
-  // Set of all already-sold card numbers
+  // Filter bingo sales belonging to the active event
+  const filterByActiveEvent = (list: TarjetaBingoVenta[]): TarjetaBingoVenta[] => {
+    return list.filter((t) => {
+      if (!config.id) return true;
+      if (t.eventoId) return t.eventoId === config.id;
+      return config.id === 'evento-principal';
+    });
+  };
+
+  const tarjetasDelEvento = filterByActiveEvent(tarjetas);
+
+  // Set of all already-sold card numbers in the active event
   const getAllSoldNumbers = (list: TarjetaBingoVenta[]): Set<number> => {
     const set = new Set<number>();
     list.forEach((t) => {
@@ -77,16 +93,15 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
     const list = await getTarjetasBingoVentas();
     setTarjetas(list);
 
-    // Initial suggestion of next free card
-    const sold = getAllSoldNumbers(list);
+    const eventList = filterByActiveEvent(list);
+    // Initial suggestion of next free card in the active event
+    const sold = getAllSoldNumbers(eventList);
     let next = 1;
     while (sold.has(next)) {
       next++;
     }
     setNumeroTarjetaInput(String(next));
-    if (selectedCards.length === 0) {
-      setSelectedCards([next]);
-    }
+    setSelectedCards([next]);
 
     const mods = await getModalidadesPago();
     setModalidades(mods.filter((m) => m.activo));
@@ -94,7 +109,11 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [config.id]);
+
+  useEffect(() => {
+    setDescripcionImpresion(config.bingoPrecios?.descripcionImpresion || '');
+  }, [config.bingoPrecios?.descripcionImpresion]);
 
   const getNextFreeNumber = (existingSold: Set<number>, alreadySelected: number[]): number => {
     const blocked = new Set([...existingSold, ...alreadySelected]);
@@ -119,15 +138,15 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
       return;
     }
 
-    const sold = getAllSoldNumbers(tarjetas);
+    const sold = getAllSoldNumbers(tarjetasDelEvento);
     if (sold.has(num)) {
-      const duenio = tarjetas.find(
+      const duenio = tarjetasDelEvento.find(
         (t) =>
           t.numeroTarjeta === num ||
           (t.numerosTarjetas && t.numerosTarjetas.includes(num))
       );
       setValidationError(
-        `¡La tarjeta #${num} ya fue vendida a "${duenio?.comprador || 'otro cliente'}"!`
+        `¡La tarjeta #${num} ya fue vendida a "${duenio?.comprador || 'otro cliente'}" en este evento!`
       );
       return;
     }
@@ -143,7 +162,7 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
   // Quick batch add: add N consecutive available cards
   const handleAddMultipleNextCards = (count: number) => {
     setValidationError(null);
-    const sold = getAllSoldNumbers(tarjetas);
+    const sold = getAllSoldNumbers(tarjetasDelEvento);
     let currentSelected = [...selectedCards];
 
     for (let i = 0; i < count; i++) {
@@ -190,18 +209,18 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
       return;
     }
 
-    // Double check that none of the cards are already sold
-    const sold = getAllSoldNumbers(tarjetas);
+    // Double check that none of the cards are already sold in this event
+    const sold = getAllSoldNumbers(tarjetasDelEvento);
     const alreadySold = cardsToSell.filter((c) => sold.has(c));
     if (alreadySold.length > 0) {
       setValidationError(
-        `Las siguientes tarjetas ya están vendidas: ${alreadySold.map((c) => `#${c}`).join(', ')}.`
+        `Las siguientes tarjetas ya están vendidas en este evento: ${alreadySold.map((c) => `#${c}`).join(', ')}.`
       );
       return;
     }
 
     setSaving(true);
-    const correlativo = (tarjetas.length + 1).toString().padStart(4, '0');
+    const correlativo = (tarjetasDelEvento.length + 1).toString().padStart(4, '0');
     const ticketId = `B-${correlativo}`;
     const now = new Date();
 
@@ -222,12 +241,16 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
     const nuevaVenta: TarjetaBingoVenta = {
       id: 'tarjeta-b-' + Date.now(),
       numeroTicket: ticketId,
+      eventoId: config.id || '',
+      nombreEvento: config.nombreEvento || '',
       numeroTarjeta: cardsToSell[0],
       numerosTarjetas: cardsToSell,
       cantidad: cardsToSell.length,
       precioUnitario,
       comprador: nombreFinal,
       telefono: telefono.trim(),
+      descripcionImpresion:
+        descripcionImpresion.trim() || bingoConfig.descripcionImpresion || '',
       precioCobrado: totalCobrado,
       etiquetaPrecio: etiqueta,
       modalidadPago,
@@ -255,10 +278,11 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
     if (!mantenerComprador) {
       setComprador('');
       setTelefono('');
+      setDescripcionImpresion(bingoConfig.descripcionImpresion || '');
     }
 
-    // Suggest next available free card for the next purchase
-    const newSoldSet = getAllSoldNumbers(updatedList);
+    // Suggest next available free card for the next purchase in this event
+    const newSoldSet = getAllSoldNumbers([nuevaVenta, ...tarjetasDelEvento]);
     const nextFree = getNextFreeNumber(newSoldSet, []);
     setNumeroTarjetaInput(String(nextFree));
     setSelectedCards([nextFree]);
@@ -276,7 +300,7 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
     }
   };
 
-  const filteredTarjetas = tarjetas.filter((t) => {
+  const filteredTarjetas = tarjetasDelEvento.filter((t) => {
     const query = searchTerm.toLowerCase();
     const matchComprador = t.comprador.toLowerCase().includes(query);
     const matchTicket = t.numeroTicket.toLowerCase().includes(query);
@@ -293,16 +317,16 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
       : bingoConfig.precio1;
   const totalOrden = Math.round(precioActual * selectedCards.length * 100) / 100;
 
-  const totalTarjetasVendidas = tarjetas.reduce(
+  const totalTarjetasVendidas = tarjetasDelEvento.reduce(
     (acc, t) => acc + (t.cantidad || (t.numerosTarjetas ? t.numerosTarjetas.length : 1)),
     0
   );
 
-  const totalRecaudado = tarjetas
+  const totalRecaudado = tarjetasDelEvento
     .filter((t) => t.estadoPago === 'pagado')
     .reduce((acc, t) => acc + t.precioCobrado, 0);
 
-  const totalPendiente = tarjetas
+  const totalPendiente = tarjetasDelEvento
     .filter((t) => t.estadoPago === 'pendiente')
     .reduce((acc, t) => acc + t.precioCobrado, 0);
 
@@ -311,8 +335,15 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
       {/* Banner */}
       <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 rounded-3xl p-6 sm:p-8 text-white shadow-xl shadow-indigo-500/15 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-bold mb-2">
-            <Ticket className="w-3.5 h-3.5" /> Módulo Oficial de Tarjetas de Bingo
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-white text-xs font-bold">
+              <Ticket className="w-3.5 h-3.5" /> Módulo Oficial de Tarjetas de Bingo
+            </div>
+            {config.nombreEvento && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-950/30 border border-white/25 text-white text-xs font-black">
+                <span>Evento Activo: {config.nombreEvento}</span>
+              </div>
+            )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
             Venta de Tarjetas de Bingo
@@ -323,7 +354,7 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
         </div>
         <div className="flex gap-3">
           <div className="bg-white/10 backdrop-blur-md rounded-2xl px-5 py-3 border border-white/20 text-center">
-            <div className="text-xs uppercase font-semibold text-white/80">Tarjetas Vendidas</div>
+            <div className="text-xs uppercase font-semibold text-white/80">Tarjetas del Evento</div>
             <div className="text-2xl font-black">{totalTarjetasVendidas}</div>
           </div>
           <div className="bg-white/10 backdrop-blur-md rounded-2xl px-5 py-3 border border-white/20 text-center">
@@ -653,7 +684,7 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
-                  Ventas de Tarjetas de Bingo ({tarjetas.length} tickets • {totalTarjetasVendidas} tarjetas)
+                  Ventas de Tarjetas de Bingo ({tarjetasDelEvento.length} tickets • {totalTarjetasVendidas} tarjetas)
                 </h3>
                 <p className="text-xs text-slate-500">
                   {totalPendiente > 0 && (
@@ -677,104 +708,178 @@ export const BingoSales: React.FC<BingoSalesProps> = ({ config }) => {
               </div>
             </div>
 
-            {filteredTarjetas.length === 0 ? (
-              <div className="py-12 text-center text-slate-400">
-                <Ticket className="w-12 h-12 mx-auto stroke-1 text-slate-300 dark:text-slate-700 mb-2" />
-                <p className="text-sm font-medium">No hay ventas registradas</p>
-                <p className="text-xs text-slate-400">Registra una nueva tarjeta con el formulario</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto mt-3 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <table className="w-full text-left text-xs min-w-[620px]">
-                  <thead>
-                    <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase text-[10px] bg-slate-50/60 dark:bg-slate-800/40">
-                      <th className="py-2.5 px-3">Tarjetas Asignadas</th>
-                      <th className="py-2.5 px-3">Cliente</th>
-                      <th className="py-2.5 px-3">Total Cobrado</th>
-                      <th className="py-2.5 px-3">Modalidad</th>
-                      <th className="py-2.5 px-3">Estado</th>
-                      <th className="py-2.5 px-3 text-right">Comprobante</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                    {filteredTarjetas.map((tb) => {
+            <div className="mt-4">
+              <AdaptiveDataView
+                items={filteredTarjetas}
+                pageSize={15}
+                itemLabel="ventas de bingo"
+                emptyState={
+                  <div className="py-12 text-center text-slate-400">
+                    <Ticket className="w-12 h-12 mx-auto stroke-1 text-slate-300 dark:text-slate-700 mb-2" />
+                    <p className="text-sm font-medium">No hay ventas registradas</p>
+                    <p className="text-xs text-slate-400">Registra una nueva tarjeta con el formulario</p>
+                  </div>
+                }
+                renderTable={(visibleTarjetas) => (
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase text-[10px] bg-slate-50/60 dark:bg-slate-800/40">
+                        <th className="py-2.5 px-3 whitespace-nowrap">Tarjetas Asignadas</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Cliente</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Total Cobrado</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Modalidad</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Estado</th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap">Comprobante</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                      {visibleTarjetas.map((tb) => {
+                        const cardList =
+                          tb.numerosTarjetas && tb.numerosTarjetas.length > 0
+                            ? tb.numerosTarjetas
+                            : [tb.numeroTarjeta];
+
+                        return (
+                          <tr
+                            key={tb.id}
+                            className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition"
+                          >
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <div className="flex flex-wrap gap-1 max-w-xs">
+                                {cardList.slice(0, 4).map((num) => (
+                                  <span
+                                    key={num}
+                                    className="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-mono font-black text-xs"
+                                  >
+                                    #{String(num).padStart(3, '0')}
+                                  </span>
+                                ))}
+                                {cardList.length > 4 && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] text-slate-400 font-bold">
+                                    +{cardList.length - 4} más
+                                  </span>
+                                )}
+                              </div>
+                              <span className="block text-[10px] text-slate-400 mt-0.5">
+                                {cardList.length} {cardList.length === 1 ? 'tarjeta' : 'tarjetas'} • Ticket {tb.numeroTicket}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <span className="font-bold text-slate-900 dark:text-white">
+                                {tb.comprador || 'Al Portador'}
+                              </span>
+                              {tb.telefono && (
+                                <span className="block text-[10px] text-slate-400">{tb.telefono}</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 font-black text-slate-900 dark:text-white whitespace-nowrap">
+                              {formatPrecio(tb.precioCobrado)}
+                              <span className="block text-[10px] text-slate-400 font-normal">
+                                {tb.etiquetaPrecio}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 uppercase text-[10px] text-slate-500 whitespace-nowrap">
+                              {tb.modalidadPago}
+                            </td>
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <button
+                                onClick={() => handleToggleEstado(tb)}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold transition ${
+                                  tb.estadoPago === 'pagado'
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                }`}
+                              >
+                                {tb.estadoPago === 'pagado' ? 'PAGADO' : 'PENDIENTE'}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                              <button
+                                onClick={() => {
+                                  setSelectedTarjetaPrint(tb);
+                                  setIsTicketModalOpen(true);
+                                }}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition"
+                              >
+                                <Printer className="w-3.5 h-3.5 text-indigo-500" /> Imprimir
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+                renderCards={(visibleTarjetas) => (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {visibleTarjetas.map((tb) => {
                       const cardList =
                         tb.numerosTarjetas && tb.numerosTarjetas.length > 0
                           ? tb.numerosTarjetas
                           : [tb.numeroTarjeta];
 
                       return (
-                        <tr
+                        <div
                           key={tb.id}
-                          className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition"
+                          className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex flex-col justify-between gap-2.5"
                         >
-                          <td className="py-2.5 px-3">
-                            <div className="flex flex-wrap gap-1 max-w-xs">
-                              {cardList.slice(0, 4).map((num) => (
-                                <span
-                                  key={num}
-                                  className="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-mono font-black text-xs"
-                                >
-                                  #{String(num).padStart(3, '0')}
-                                </span>
-                              ))}
-                              {cardList.length > 4 && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] text-slate-400 font-bold">
-                                  +{cardList.length - 4} más
-                                </span>
-                              )}
+                          <div>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex flex-wrap gap-1">
+                                {cardList.map((num) => (
+                                  <span
+                                    key={num}
+                                    className="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-mono font-black text-xs"
+                                  >
+                                    #{String(num).padStart(3, '0')}
+                                  </span>
+                                ))}
+                              </div>
+                              <button
+                                onClick={() => handleToggleEstado(tb)}
+                                className={`flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold transition ${
+                                  tb.estadoPago === 'pagado'
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                }`}
+                              >
+                                {tb.estadoPago === 'pagado' ? 'PAGADO' : 'PENDIENTE'}
+                              </button>
                             </div>
-                            <span className="block text-[10px] text-slate-400 mt-0.5">
-                              {cardList.length} {cardList.length === 1 ? 'tarjeta' : 'tarjetas'} • Ticket {tb.numeroTicket}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3">
-                            <span className="font-bold text-slate-900 dark:text-white">
+                            <h4 className="font-extrabold text-slate-900 dark:text-white text-sm mt-2">
                               {tb.comprador || 'Al Portador'}
-                            </span>
-                            {tb.telefono && (
-                              <span className="block text-[10px] text-slate-400">{tb.telefono}</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 font-black text-slate-900 dark:text-white">
-                            {formatPrecio(tb.precioCobrado)}
-                            <span className="block text-[10px] text-slate-400 font-normal">
-                              {tb.etiquetaPrecio}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 uppercase text-[10px] text-slate-500">
-                            {tb.modalidadPago}
-                          </td>
-                          <td className="py-2.5 px-3">
-                            <button
-                              onClick={() => handleToggleEstado(tb)}
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold transition ${
-                                tb.estadoPago === 'pagado'
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                              }`}
-                            >
-                              {tb.estadoPago === 'pagado' ? 'PAGADO' : 'PENDIENTE'}
-                            </button>
-                          </td>
-                          <td className="py-2.5 px-3 text-right">
+                            </h4>
+                            <p className="text-[11px] text-slate-400">
+                              Ticket {tb.numeroTicket}
+                              {tb.telefono ? ` • 📞 ${tb.telefono}` : ''}
+                            </p>
+                          </div>
+                          <div className="pt-2.5 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between">
+                            <div>
+                              <span className="font-black text-slate-900 dark:text-white text-sm">
+                                {formatPrecio(tb.precioCobrado)}
+                              </span>
+                              <span className="text-[10px] uppercase text-slate-400 font-bold ml-2">
+                                {tb.modalidadPago}
+                              </span>
+                            </div>
                             <button
                               onClick={() => {
                                 setSelectedTarjetaPrint(tb);
                                 setIsTicketModalOpen(true);
                               }}
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition"
+                              className="px-2.5 py-1.5 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold inline-flex items-center gap-1 transition"
                             >
                               <Printer className="w-3.5 h-3.5 text-indigo-500" /> Imprimir
                             </button>
-                          </td>
-                        </tr>
+                          </div>
+                        </div>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  </div>
+                )}
+              />
+            </div>
           </div>
         </div>
       </div>

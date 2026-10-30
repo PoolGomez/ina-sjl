@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Radio, Wifi, WifiOff, Eye, Sparkles, X } from 'lucide-react';
-import { initializeFirebase } from '../../lib/firebase';
+import { initializeFirebase } from '@/lib/firebase';
 import { onSnapshot, doc } from 'firebase/firestore';
-import { getBingoGameState, subscribeAndRegisterBingoViewer } from '../../lib/storage';
-import { BingoState } from '../../lib/types';
+import { getBingoGameState, subscribeAndRegisterBingoViewer } from '@/lib/storage';
+import { BingoState } from '@/lib/types';
 
 const BINGO_LETTERS = ['B', 'I', 'N', 'G', 'O'] as const;
 type BingoLetter = (typeof BINGO_LETTERS)[number];
@@ -286,7 +286,7 @@ export default function TransmisionPage() {
           </div>
 
           <Link
-            href="/bingo-juego2"
+            href="/system/bingo-juego2"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
