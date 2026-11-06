@@ -21,6 +21,7 @@ export interface UserPermissions {
   puedeRegistrarAsistencia: boolean;
   puedeVerMetricasIglesia: boolean;
   puedeGestionarUsuarios: boolean;
+  puedeAccederVentas: boolean;
   puedeVenderViandas: boolean;
   puedeVenderBingo: boolean;
   puedeVenderTickets: boolean;
@@ -50,6 +51,7 @@ export const DEFAULT_PERMISOS_BY_ROLE: Record<UserRole, UserPermissions> = {
     puedeRegistrarAsistencia: true,
     puedeVerMetricasIglesia: true,
     puedeGestionarUsuarios: true,
+    puedeAccederVentas: true,
     puedeVenderViandas: true,
     puedeVenderBingo: true,
     puedeVenderTickets: true,
@@ -66,6 +68,7 @@ export const DEFAULT_PERMISOS_BY_ROLE: Record<UserRole, UserPermissions> = {
     puedeRegistrarAsistencia: true,
     puedeVerMetricasIglesia: true,
     puedeGestionarUsuarios: true,
+    puedeAccederVentas: true,
     puedeVenderViandas: true,
     puedeVenderBingo: true,
     puedeVenderTickets: true,
@@ -82,6 +85,7 @@ export const DEFAULT_PERMISOS_BY_ROLE: Record<UserRole, UserPermissions> = {
     puedeRegistrarAsistencia: true,
     puedeVerMetricasIglesia: false,
     puedeGestionarUsuarios: false,
+    puedeAccederVentas: true,
     puedeVenderViandas: true,
     puedeVenderBingo: true,
     puedeVenderTickets: true,
@@ -98,6 +102,7 @@ export const DEFAULT_PERMISOS_BY_ROLE: Record<UserRole, UserPermissions> = {
     puedeRegistrarAsistencia: false,
     puedeVerMetricasIglesia: true,
     puedeGestionarUsuarios: false,
+    puedeAccederVentas: false,
     puedeVenderViandas: false,
     puedeVenderBingo: false,
     puedeVenderTickets: false,
@@ -123,7 +128,7 @@ export const MODALIDADES_PAGO_COLORS: Record<ModalidadPago, string> = {
   mercadopago: 'cyan',
   pendiente: 'amber',
 };
-export type EstadoPago = 'pagado' | 'pendiente';
+export type EstadoPago = 'pagado' | 'pendiente' | 'anulado';
 
 export interface PrecioViandaItem {
   id: string;

@@ -777,7 +777,11 @@ export function buildEscPosTicket({
     buf.divider(cols, '-');
     buf.alignCenter().bold(true);
     buf.line(
-      data.estadoPago === 'pagado' ? '[ ESTADO: PAGADO ]' : '[ ESTADO: PENDIENTE DE PAGO ]'
+      data.estadoPago === 'pagado'
+        ? '[ ESTADO: PAGADO ]'
+        : data.estadoPago === 'anulado'
+        ? '[ ESTADO: ANULADO ]'
+        : '[ ESTADO: PENDIENTE DE PAGO ]'
     );
     buf.bold(false);
   }

@@ -154,7 +154,7 @@ const MODALIDAD_CONFIG: Record<ModalidadPago, { label: string; icon: string; gra
 const ROLE_CONFIG: Record<UserRole, { label: string; color: string; description: string }> = {
   superadmin: { label: 'Super Admin', color: 'rose', description: 'Acceso total + gestión de usuarios' },
   admin: { label: 'Administrador', color: 'amber', description: 'Configuración y métricas completas' },
-  cajero: { label: 'Cajero', color: 'emerald', description: 'Venta de viandas, tickets y bingo' },
+  cajero: { label: 'Cajero', color: 'emerald', description: 'Ventas, Viandas, Tickets y Tarjetas Bingo' },
   visor: { label: 'Visor', color: 'blue', description: 'Consulta y verificación solamente' },
 };
 
@@ -1195,6 +1195,7 @@ export const Administracion: React.FC<AdministracionProps> = ({
     'puedeGestionarUsuarios',
   ];
   const eventosPermKeys: (keyof UserPermissions)[] = [
+    'puedeAccederVentas',
     'puedeVenderViandas',
     'puedeVenderTickets',
     'puedeVenderBingo',
@@ -1205,20 +1206,21 @@ export const Administracion: React.FC<AdministracionProps> = ({
   ];
   const permKey: (keyof UserPermissions)[] = [...iglesiaPermKeys, ...eventosPermKeys];
   const permLabels: Record<keyof UserPermissions, string> = {
-    puedeGestionarMembresia: 'Gestionar Membresía (Miembros)',
-    puedeGestionarSedes: 'Gestionar Sedes y Ubicaciones',
-    puedeGestionarGrupos: 'Gestionar Grupos de la Iglesia',
-    puedeGestionarMinisterios: 'Gestionar Ministerios',
-    puedeRegistrarAsistencia: 'Registrar Asistencia',
-    puedeVerMetricasIglesia: 'Ver Métricas de Asistencia',
-    puedeGestionarUsuarios: 'Gestionar Usuarios y Permisos',
-    puedeVenderViandas: 'Vender Viandas',
-    puedeVenderTickets: 'Vender Tickets',
-    puedeVenderBingo: 'Vender Bingo',
-    puedeVerSorteos: 'Ver Sorteos',
+    puedeGestionarMembresia: 'Padrón de Membresía',
+    puedeGestionarSedes: 'Sedes y Ubicaciones',
+    puedeGestionarGrupos: 'Grupos y Pastorales',
+    puedeGestionarMinisterios: 'Gestión de Ministerios',
+    puedeRegistrarAsistencia: 'Asistencia por Reuniones',
+    puedeVerMetricasIglesia: 'Métricas de Asistencia',
+    puedeGestionarUsuarios: 'Usuarios y Permisos',
+    puedeAccederVentas: 'Ventas',
+    puedeVenderViandas: 'Viandas',
+    puedeVenderTickets: 'Tickets',
+    puedeVenderBingo: 'Tarjetas Bingo',
+    puedeVerSorteos: 'Sorteos',
     puedeVerificacion: 'Verificación',
-    puedeAdministrar: 'Administrar Eventos',
-    puedeVerMetricas: 'Ver Métricas de Eventos',
+    puedeAdministrar: 'Administración',
+    puedeVerMetricas: 'Métricas Financieras',
   };
 
   return (

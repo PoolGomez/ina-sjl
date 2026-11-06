@@ -14,6 +14,7 @@ import {
   Search,
 } from 'lucide-react';
 import {
+  dashboardNavItem,
   iglesiaNavItems,
   eventosNavItems,
   adminSubItems,
@@ -85,28 +86,43 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     return Boolean(user.permisos?.[perm]);
   };
 
+  const hasItemPermission = (item: {
+    requiredPerm?: keyof UserPermissions;
+    requiredPerms?: (keyof UserPermissions)[];
+  }) => {
+    if (item.requiredPerms && item.requiredPerms.length > 0) {
+      return item.requiredPerms.some((perm) => hasPermission(perm));
+    }
+    return hasPermission(item.requiredPerm);
+  };
+
   const allSearchableItems = [
+    {
+      label: dashboardNavItem.label,
+      href: dashboardNavItem.href,
+      category: 'Principal',
+    },
     ...iglesiaNavItems
-      .filter((i) => hasPermission(i.requiredPerm))
+      .filter((i) => hasItemPermission(i))
       .map((i) => ({ label: i.label, href: i.href, category: 'Iglesia INA' })),
     ...eventosNavItems
-      .filter((i) => i.id !== 'admin' && hasPermission(i.requiredPerm))
+      .filter((i) => i.id !== 'admin' && hasItemPermission(i))
       .map((i) => ({ label: i.label, href: i.href, category: 'Eventos' })),
     ...(hasPermission('puedeAdministrar')
       ? adminSubItems.map((s) => ({
-          label: s.label,
-          href: s.href,
-          category: 'Administración',
-        }))
+        label: s.label,
+        href: s.href,
+        category: 'Administración',
+      }))
       : []),
   ];
 
   const filteredSearchItems = searchQuery.trim()
     ? allSearchableItems.filter(
-        (item) =>
-          item.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.category.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+      (item) =>
+        item.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.category.toLowerCase().includes(searchQuery.toLowerCase())
+    )
     : [];
 
   const currentModuleTitle =
@@ -216,7 +232,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {/* Next.js Documentation Theme Switcher (System / Light / Dark) */}
           <ThemeToggleButton />
 
-          <button
+          {/* <button
             type="button"
             onClick={() => {
               if (onViewLanding) onViewLanding();
@@ -227,7 +243,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             <Globe className="w-4 h-4 text-brand-500" />
             <span>Portada INA</span>
-          </button>
+          </button> */}
+          <Link
+            href="/"
+            target="_blank"
+            title="Ver Portada Pública de la Iglesia Nueva Apostólica"
+            className="hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800 dark:text-gray-300 text-xs font-medium transition-colors"
+          >
+            <Globe className="w-4 h-4 text-brand-500" />
+            <span>Portal INA</span>
+          </Link>
 
           <Link
             href="/system/transmision"
@@ -237,7 +262,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             className="hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-error-600 hover:bg-error-500 text-white text-xs font-semibold shadow-theme-xs transition-colors"
           >
             <Tv2 className="w-4 h-4" />
-            <span>TV En Vivo</span>
+            <span>Bingo En Vivo</span>
           </Link>
 
           {/* TailAdmin UserDropdown */}
@@ -256,9 +281,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 {user?.displayName || user?.email?.split('@')[0] || 'Usuario'}
               </span>
               <ChevronDown
-                className={`hidden xl:block w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${
-                  isUserDropdownOpen ? 'rotate-180' : ''
-                }`}
+                className={`hidden xl:block w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${isUserDropdownOpen ? 'rotate-180' : ''
+                  }`}
               />
             </button>
 
@@ -299,7 +323,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       className="flex w-full items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg text-theme-sm hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/5"
                     >
                       <Tv2 className="w-4 h-4 text-error-500" />
-                      Pantalla Transmisión TV
+                      Pantalla Transmisión Bingo
                     </Link>
                   </li>
                 </ul>

@@ -18,10 +18,13 @@ import {
   Layers,
   Award,
   Receipt,
+  ShoppingCart,
+  LayoutDashboard,
 } from 'lucide-react';
 import { UserPermissions } from './types';
 
 export type TabType =
+  | 'dashboard'
   | 'iglesia-membresia'
   | 'iglesia-sedes'
   | 'iglesia-grupos'
@@ -29,6 +32,7 @@ export type TabType =
   | 'iglesia-asistencia'
   | 'iglesia-metricas'
   | 'iglesia-usuarios'
+  | 'ventas'
   | 'viandas'
   | 'tickets'
   | 'bingo-venta'
@@ -59,8 +63,22 @@ export interface NavItemDef {
   hoverBg: string;
   dot: string;
   requiredPerm?: keyof UserPermissions;
+  requiredPerms?: (keyof UserPermissions)[];
   superAdminOnly?: boolean;
 }
+
+export const dashboardNavItem: NavItemDef = {
+  id: 'dashboard',
+  href: '/system',
+  label: 'Dashboard Principal',
+  shortLabel: 'Dashboard',
+  icon: LayoutDashboard,
+  color: 'text-amber-500',
+  gradient: 'from-amber-500 to-orange-600',
+  activeBg: 'bg-brand-50 text-brand-500 dark:bg-brand-500/[0.12] dark:text-brand-400',
+  hoverBg: 'hover:bg-gray-100 dark:hover:bg-white/5',
+  dot: 'bg-amber-500',
+};
 
 export const iglesiaNavItems: NavItemDef[] = [
   {
@@ -158,9 +176,22 @@ export const iglesiaNavItems: NavItemDef[] = [
 
 export const eventosNavItems: NavItemDef[] = [
   {
+    id: 'ventas',
+    href: '/system/ventas',
+    label: 'Ventas',
+    shortLabel: 'Ventas',
+    icon: ShoppingCart,
+    color: 'text-emerald-500',
+    gradient: 'from-emerald-500 to-teal-600',
+    activeBg: 'bg-brand-50 text-brand-500 dark:bg-brand-500/[0.12] dark:text-brand-400',
+    hoverBg: 'hover:bg-gray-100 dark:hover:bg-white/5',
+    dot: 'bg-emerald-500',
+    requiredPerm: 'puedeAccederVentas',
+  },
+  {
     id: 'viandas',
     href: '/system/viandas',
-    label: 'Venta de Viandas',
+    label: 'Viandas',
     shortLabel: 'Viandas',
     icon: UtensilsCrossed,
     color: 'text-amber-500',
@@ -173,7 +204,7 @@ export const eventosNavItems: NavItemDef[] = [
   {
     id: 'tickets',
     href: '/system/tickets',
-    label: 'Venta de Tickets',
+    label: 'Tickets',
     shortLabel: 'Tickets',
     icon: Receipt,
     color: 'text-cyan-500',
@@ -186,8 +217,8 @@ export const eventosNavItems: NavItemDef[] = [
   {
     id: 'bingo-venta',
     href: '/system/bingo-venta',
-    label: 'Venta de Tarjetas',
-    shortLabel: 'Tarjetas',
+    label: 'Tarjetas Bingo',
+    shortLabel: 'Tarjetas Bingo',
     icon: Ticket,
     color: 'text-indigo-500',
     gradient: 'from-indigo-500 to-blue-500',

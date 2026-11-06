@@ -9,17 +9,20 @@ import {
   Sparkles,
   Ticket,
   UtensilsCrossed,
+  Receipt,
   Layers,
   RotateCcw,
   CheckCircle,
 } from 'lucide-react';
 import {
   TicketVianda,
+  TicketEventoVenta,
   TarjetaBingoVenta,
   SorteoGanador,
 } from '../lib/types';
 import {
   getTicketsViandas,
+  getTicketsEventoVentas,
   getTarjetasBingoVentas,
   getSorteos,
   saveSorteo,
@@ -30,10 +33,10 @@ import { AdaptiveDataView } from './AdaptiveDataView';
 
 interface ParticipantItem {
   id: string;
-  identificador: string; // ej. V-1002 o Bingo #015
+  identificador: string; // ej. V-0001, T-0001 o Bingo #015
   comprador: string;
   telefono?: string;
-  tipo: 'vianda' | 'bingo';
+  tipo: 'vianda' | 'ticket' | 'bingo';
   estadoPago: string;
   modalidadPago: string;
 }
@@ -41,11 +44,12 @@ interface ParticipantItem {
 export const Sorteos: React.FC = () => {
   const { config } = useEventConfig();
   const [ticketsViandas, setTicketsViandas] = useState<TicketVianda[]>([]);
+  const [ticketsEvento, setTicketsEvento] = useState<TicketEventoVenta[]>([]);
   const [tarjetasBingo, setTarjetasBingo] = useState<TarjetaBingoVenta[]>([]);
   const [historialSorteos, setHistorialSorteos] = useState<SorteoGanador[]>([]);
 
   // Sorteo configuration
-  const [filtroOrigen, setFiltroOrigen] = useState<'viandas' | 'bingo' | 'todos'>('todos');
+  const [filtroOrigen, setFiltroOrigen] = useState<'viandas' | 'tickets' | 'bingo' | 'todos'>('todos');
   const [soloPagados, setSoloPagados] = useState(true);
   const [premio, setPremio] = useState('Premio Mayor del Evento');
 
@@ -57,12 +61,14 @@ export const Sorteos: React.FC = () => {
   const spinIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadData = async () => {
-    const [tks, tbs, srt] = await Promise.all([
+    const [tks, tksEv, tbs, srt] = await Promise.all([
       getTicketsViandas(),
+      getTicketsEventoVentas(),
       getTarjetasBingoVentas(),
       getSorteos(),
     ]);
     setTicketsViandas(tks);
+    setTicketsEvento(tksEv);
     setTarjetasBingo(tbs);
     setHistorialSorteos(srt);
   };
@@ -83,11 +89,16 @@ export const Sorteos: React.FC = () => {
 
     if (filtroOrigen === 'viandas' || filtroOrigen === 'todos') {
       const vItems: ParticipantItem[] = ticketsViandas
-        .filter((t) => matchesActiveEvent(t) && (!soloPagados || t.estadoPago === 'pagado'))
+        .filter(
+          (t) =>
+            matchesActiveEvent(t) &&
+            t.estadoPago !== 'anulado' &&
+            (!soloPagados || t.estadoPago === 'pagado')
+        )
         .map((t) => ({
           id: t.id,
           identificador: `Ticket ${t.numeroTicket}`,
-          comprador: t.comprador,
+          comprador: t.comprador || 'Al Portador',
           telefono: t.telefono,
           tipo: 'vianda',
           estadoPago: t.estadoPago,
@@ -96,9 +107,32 @@ export const Sorteos: React.FC = () => {
       pool = [...pool, ...vItems];
     }
 
+    if (filtroOrigen === 'tickets' || filtroOrigen === 'todos') {
+      const tItems: ParticipantItem[] = ticketsEvento
+        .filter(
+          (t) =>
+            matchesActiveEvent(t) &&
+            t.estadoPago !== 'anulado' &&
+            (!soloPagados || t.estadoPago === 'pagado')
+        )
+        .map((t) => ({
+          id: t.id,
+          identificador: `Ticket ${t.numeroTicket}`,
+          comprador: t.comprador || 'Al Portador',
+          telefono: t.telefono,
+          tipo: 'ticket',
+          estadoPago: t.estadoPago,
+          modalidadPago: t.modalidadPago,
+        }));
+      pool = [...pool, ...tItems];
+    }
+
     if (filtroOrigen === 'bingo' || filtroOrigen === 'todos') {
       const eligibleBingo = tarjetasBingo.filter(
-        (b) => matchesActiveEvent(b) && (!soloPagados || b.estadoPago === 'pagado')
+        (b) =>
+          matchesActiveEvent(b) &&
+          b.estadoPago !== 'anulado' &&
+          (!soloPagados || b.estadoPago === 'pagado')
       );
       eligibleBingo.forEach((b) => {
         const cards = b.numerosTarjetas && b.numerosTarjetas.length > 0 ? b.numerosTarjetas : [b.numeroTarjeta];
@@ -192,7 +226,7 @@ export const Sorteos: React.FC = () => {
           </div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Sorteos de Premios</h1>
           <p className="text-white/80 text-sm mt-1 max-w-xl">
-            Realiza sorteos transparentes y azarosos entre los tickets de viandas, las tarjetas de bingo o entre todos los participantes.
+            Realiza sorteos transparentes y azarosos entre viandas, tickets, tarjetas de bingo o entre todos los participantes.
           </p>
         </div>
         <div className="flex gap-3">
@@ -235,12 +269,12 @@ export const Sorteos: React.FC = () => {
                 </div>
               </div>
 
-              {/* Source Filter: Viandas vs Bingo vs Todos */}
+              {/* Source Filter: Todos vs Viandas vs Tickets vs Bingo */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   Participantes del Sorteo
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => setFiltroOrigen('todos')}
@@ -264,7 +298,20 @@ export const Sorteos: React.FC = () => {
                     }`}
                   >
                     <UtensilsCrossed className="w-4 h-4 text-amber-500" />
-                    <span className="text-xs">Solo Viandas</span>
+                    <span className="text-xs">Viandas</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFiltroOrigen('tickets')}
+                    className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center gap-1 ${
+                      filtroOrigen === 'tickets'
+                        ? 'bg-cyan-50 dark:bg-cyan-950/40 border-cyan-500 text-cyan-700 dark:text-cyan-300 font-extrabold shadow-sm'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Receipt className="w-4 h-4 text-cyan-500" />
+                    <span className="text-xs">Tickets</span>
                   </button>
 
                   <button
@@ -277,7 +324,7 @@ export const Sorteos: React.FC = () => {
                     }`}
                   >
                     <Ticket className="w-4 h-4 text-indigo-500" />
-                    <span className="text-xs">Solo Bingo</span>
+                    <span className="text-xs">Bingo</span>
                   </button>
                 </div>
               </div>
@@ -370,7 +417,14 @@ export const Sorteos: React.FC = () => {
 
                     <div className="mt-3 text-xs text-slate-400 space-y-1">
                       {winner.telefono && <p>Teléfono: {winner.telefono}</p>}
-                      <p className="capitalize">Origen: Compra de {winner.tipo}</p>
+                      <p>
+                        Origen:{' '}
+                        {winner.tipo === 'vianda'
+                          ? 'Viandas'
+                          : winner.tipo === 'ticket'
+                          ? 'Tickets'
+                          : 'Tarjetas Bingo'}
+                      </p>
                       <p>
                         Estado:{' '}
                         <span className="text-emerald-400 font-bold uppercase">

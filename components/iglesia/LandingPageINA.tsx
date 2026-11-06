@@ -68,7 +68,7 @@ export const LandingPageINA: React.FC<LandingPageINAProps> = ({
     if (onEnterDashboard) {
       onEnterDashboard();
     } else {
-      router.push('/system/membresia');
+      router.push('/system');
     }
   };
 

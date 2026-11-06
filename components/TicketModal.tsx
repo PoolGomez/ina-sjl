@@ -502,6 +502,11 @@ export const TicketModal: React.FC<TicketModalProps> = ({
                   <CheckCircle className="w-3.5 h-3.5" />
                   ESTADO: PAGADO
                 </div>
+              ) : estadoPago === 'anulado' ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[11px] font-extrabold border border-rose-300">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  ESTADO: ANULADO
+                </div>
               ) : (
                 <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-extrabold border border-amber-300">
                   <Clock className="w-3.5 h-3.5" />

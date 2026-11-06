@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import {
+  dashboardNavItem,
   iglesiaNavItems,
   eventosNavItems,
   adminSubItems,
@@ -86,21 +87,31 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     return Boolean(user.permisos?.[perm]);
   };
 
+  const hasItemPermission = (item: NavItemDef) => {
+    if (item.requiredPerms && item.requiredPerms.length > 0) {
+      return item.requiredPerms.some((perm) => hasPermission(perm));
+    }
+    return hasPermission(item.requiredPerm);
+  };
+
   const visibleIglesiaItems = iglesiaNavItems.filter((item) => {
     if (item.superAdminOnly) {
       return Boolean(
         user?.isSuperAdmin || user?.permisos?.puedeGestionarUsuarios
       );
     }
-    return hasPermission(item.requiredPerm);
+    return hasItemPermission(item);
   });
 
   const visibleEventosItems = eventosNavItems.filter((item) =>
-    hasPermission(item.requiredPerm)
+    hasItemPermission(item)
   );
 
   const isItemActive = (item: NavItemDef) => {
     if (item.id === 'admin') return isAdminRoute;
+    if (item.id === 'dashboard') {
+      return activeTab === 'dashboard' || pathname === '/system' || pathname === '/system/dashboard';
+    }
     if (activeTab) return activeTab === item.id;
     return pathname === item.href;
   };
@@ -134,29 +145,24 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-50 flex h-dvh flex-col border-r border-gray-200 bg-white px-4 text-gray-900 transition-all duration-300 ease-in-out dark:border-gray-800 dark:bg-gray-900 print:hidden ${
-        isExpanded || isMobileOpen
-          ? 'w-[290px]'
-          : isHovered
+      className={`fixed inset-y-0 left-0 z-50 flex h-dvh flex-col border-r border-gray-200 bg-white px-4 text-gray-900 transition-all duration-300 ease-in-out dark:border-gray-800 dark:bg-gray-900 print:hidden ${isExpanded || isMobileOpen
+        ? 'w-[290px]'
+        : isHovered
           ? 'w-[290px]'
           : 'w-[90px]'
-      } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}
+        } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}
       onMouseEnter={() => !isExpanded && setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* TailAdmin Sidebar Logo Header */}
       <div
-        className={`flex py-4 border-b border-gray-100 dark:border-gray-800/80 mb-2 flex-shrink-0 ${
-          !isExpanded && !isHovered ? 'lg:justify-center' : 'justify-start px-1'
-        }`}
+        className={`flex py-4 border-b border-gray-100 dark:border-gray-800/80 mb-2 flex-shrink-0 ${!isExpanded && !isHovered ? 'lg:justify-center' : 'justify-start px-1'
+          }`}
       >
         <button
           type="button"
-          onClick={() => {
-            const first = visibleIglesiaItems[0] || visibleEventosItems[0];
-            if (first) handleNavClick(first);
-          }}
-          className="flex items-center gap-3 focus:outline-none text-left group"
+          onClick={() => handleNavClick(dashboardNavItem)}
+          className="flex items-center gap-3 focus:outline-none text-left group cursor-pointer"
         >
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-500 text-white shadow-theme-sm flex-shrink-0">
             <Sparkles className="w-5 h-5" />
@@ -178,6 +184,45 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       <div className="custom-scrollbar flex flex-1 min-h-0 flex-col overflow-y-auto overscroll-contain duration-300 ease-linear pb-8 pr-1">
         <nav className="mb-4">
           <div className="flex flex-col gap-4">
+            {/* TOP ITEM: DASHBOARD PRINCIPAL */}
+            <div>
+              <ul className="flex flex-col gap-0.5">
+                <li>
+                  {(() => {
+                    const DashboardIcon = dashboardNavItem.icon;
+                    const active = isItemActive(dashboardNavItem);
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => handleNavClick(dashboardNavItem)}
+                        title={!showFull ? dashboardNavItem.label : undefined}
+                        className={`group menu-item !py-2.5 cursor-pointer ${active ? 'menu-item-active' : 'menu-item-inactive'
+                          } ${!isExpanded && !isHovered
+                            ? 'lg:justify-center'
+                            : 'justify-start'
+                          }`}
+                      >
+                        <span
+                          className={
+                            active
+                              ? 'menu-item-icon-active'
+                              : 'menu-item-icon-inactive'
+                          }
+                        >
+                          <DashboardIcon className="w-5 h-5" />
+                        </span>
+                        {showFull && (
+                          <span className="menu-item-text truncate font-bold">
+                            {dashboardNavItem.label}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })()}
+                </li>
+              </ul>
+            </div>
+
             {/* GROUP 1: GESTIÓN DE IGLESIA INA */}
             {visibleIglesiaItems.length > 0 && (
               <div>
@@ -189,9 +234,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   >
                     <span>Gestión de Iglesia INA</span>
                     <ChevronDown
-                      className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                        iglesiaGroupOpen ? 'rotate-180' : ''
-                      }`}
+                      className={`w-3.5 h-3.5 transition-transform duration-200 ${iglesiaGroupOpen ? 'rotate-180' : ''
+                        }`}
                     />
                   </button>
                 ) : (
@@ -211,13 +255,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                             type="button"
                             onClick={() => handleNavClick(item)}
                             title={!showFull ? item.label : undefined}
-                            className={`group menu-item !py-2 cursor-pointer ${
-                              active ? 'menu-item-active' : 'menu-item-inactive'
-                            } ${
-                              !isExpanded && !isHovered
+                            className={`group menu-item !py-2 cursor-pointer ${active ? 'menu-item-active' : 'menu-item-inactive'
+                              } ${!isExpanded && !isHovered
                                 ? 'lg:justify-center'
                                 : 'justify-start'
-                            }`}
+                              }`}
                           >
                             <span
                               className={
@@ -255,9 +297,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                       Eventos ({config.nombreEvento ? 'Activo' : 'INA'})
                     </span>
                     <ChevronDown
-                      className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                        eventosGroupOpen ? 'rotate-180' : ''
-                      }`}
+                      className={`w-3.5 h-3.5 transition-transform duration-200 ${eventosGroupOpen ? 'rotate-180' : ''
+                        }`}
                     />
                   </button>
                 ) : (
@@ -280,15 +321,13 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                               type="button"
                               onClick={() => setAdminExpanded((prev) => !prev)}
                               title={!showFull ? item.label : undefined}
-                              className={`group menu-item !py-2 cursor-pointer ${
-                                active || adminExpanded
-                                  ? 'menu-item-active'
-                                  : 'menu-item-inactive'
-                              } ${
-                                !isExpanded && !isHovered
+                              className={`group menu-item !py-2 cursor-pointer ${active || adminExpanded
+                                ? 'menu-item-active'
+                                : 'menu-item-inactive'
+                                } ${!isExpanded && !isHovered
                                   ? 'lg:justify-center'
                                   : 'justify-start'
-                              }`}
+                                }`}
                             >
                               <span
                                 className={
@@ -305,11 +344,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                                     {item.label}
                                   </span>
                                   <ChevronDown
-                                    className={`w-4 h-4 transition-transform duration-200 ${
-                                      adminExpanded
-                                        ? 'rotate-180 text-brand-500 dark:text-brand-400'
-                                        : 'text-gray-500 dark:text-gray-400'
-                                    }`}
+                                    className={`w-4 h-4 transition-transform duration-200 ${adminExpanded
+                                      ? 'rotate-180 text-brand-500 dark:text-brand-400'
+                                      : 'text-gray-500 dark:text-gray-400'
+                                      }`}
                                   />
                                 </>
                               )}
@@ -324,10 +362,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                                   const SubIcon = sub.icon;
                                   const isSubActive = activeAdminSubTab
                                     ? isAdminRoute &&
-                                      activeAdminSubTab === sub.id
+                                    activeAdminSubTab === sub.id
                                     : pathname === sub.href ||
-                                      (pathname === '/system/admin' &&
-                                        sub.id === 'viandas');
+                                    (pathname === '/system/admin' &&
+                                      sub.id === 'viandas');
                                   return (
                                     <li key={sub.id}>
                                       <button
@@ -335,11 +373,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                                         onClick={() =>
                                           handleAdminSubModuleClick(sub)
                                         }
-                                        className={`w-full menu-dropdown-item !py-1.5 !text-xs cursor-pointer ${
-                                          isSubActive
-                                            ? 'menu-dropdown-item-active font-semibold'
-                                            : 'menu-dropdown-item-inactive'
-                                        }`}
+                                        className={`w-full menu-dropdown-item !py-1.5 !text-xs cursor-pointer ${isSubActive
+                                          ? 'menu-dropdown-item-active font-semibold'
+                                          : 'menu-dropdown-item-inactive'
+                                          }`}
                                       >
                                         <SubIcon
                                           className={`w-4 h-4 flex-shrink-0 ${sub.color}`}
@@ -363,13 +400,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                             type="button"
                             onClick={() => handleNavClick(item)}
                             title={!showFull ? item.label : undefined}
-                            className={`group menu-item !py-2 cursor-pointer ${
-                              active ? 'menu-item-active' : 'menu-item-inactive'
-                            } ${
-                              !isExpanded && !isHovered
+                            className={`group menu-item !py-2 cursor-pointer ${active ? 'menu-item-active' : 'menu-item-inactive'
+                              } ${!isExpanded && !isHovered
                                 ? 'lg:justify-center'
                                 : 'justify-start'
-                            }`}
+                              }`}
                           >
                             <span
                               className={
@@ -397,11 +432,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             {/* GROUP 3: OTROS / ACCESOS PÚBLICOS */}
             <div>
               <h2
-                className={`mb-2 flex px-2 text-[11px] leading-5 font-semibold text-gray-400 uppercase tracking-wider ${
-                  !isExpanded && !isHovered
-                    ? 'lg:justify-center'
-                    : 'justify-start'
-                }`}
+                className={`mb-2 flex px-2 text-[11px] leading-5 font-semibold text-gray-400 uppercase tracking-wider ${!isExpanded && !isHovered
+                  ? 'lg:justify-center'
+                  : 'justify-start'
+                  }`}
               >
                 {showFull ? (
                   'Accesos Públicos'
@@ -415,11 +449,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                     type="button"
                     onClick={handleGoToLanding}
                     title={!showFull ? 'Portada Web INA' : undefined}
-                    className={`group menu-item !py-2 menu-item-inactive cursor-pointer ${
-                      !isExpanded && !isHovered
-                        ? 'lg:justify-center'
-                        : 'justify-start'
-                    }`}
+                    className={`group menu-item !py-2 menu-item-inactive cursor-pointer ${!isExpanded && !isHovered
+                      ? 'lg:justify-center'
+                      : 'justify-start'
+                      }`}
                   >
                     <span className="menu-item-icon-inactive">
                       <Globe className="w-5 h-5" />
@@ -437,12 +470,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => closeMobileSidebar()}
-                    title={!showFull ? 'Transmisión TV' : undefined}
-                    className={`group menu-item !py-2 menu-item-inactive ${
-                      !isExpanded && !isHovered
-                        ? 'lg:justify-center'
-                        : 'justify-start'
-                    }`}
+                    title={!showFull ? 'Transmisión Bingo' : undefined}
+                    className={`group menu-item !py-2 menu-item-inactive ${!isExpanded && !isHovered
+                      ? 'lg:justify-center'
+                      : 'justify-start'
+                      }`}
                   >
                     <span className="text-error-500">
                       <Tv2 className="w-5 h-5" />
@@ -450,7 +482,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                     {showFull && (
                       <>
                         <span className="menu-item-text flex-1 truncate">
-                          Transmisión TV
+                          Transmisión Bingo
                         </span>
                         <span className="inline-block w-2 h-2 rounded-full bg-error-500 animate-ping" />
                       </>
