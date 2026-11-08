@@ -3243,8 +3243,8 @@ export const Administracion: React.FC<AdministracionProps> = ({
                     modalidadPago: 'efectivo',
                     estadoPago: 'pagado',
                     entregado: false,
-                    fecha: new Date().toISOString(),
-                    fechaFormateada: '12/10/26 16:30',
+                    fecha: '2026-10-12T16:30:00',
+                    fechaFormateada: '12/10/2026 16:30',
                   },
                   config: {
                     ...eventConfig,
