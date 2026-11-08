@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
-import { Radio, Wifi, WifiOff, Eye, Sparkles, X } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import confetti from 'canvas-confetti';
+import { Radio, Wifi, WifiOff, Eye, Sparkles, X, Clock } from 'lucide-react';
 import { initializeFirebase } from '@/lib/firebase';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { getBingoGameState, subscribeAndRegisterBingoViewer } from '@/lib/storage';
@@ -46,6 +46,8 @@ const CARTILLA_SAMPLE = [
 export default function TransmisionPage() {
   const [drawnNumbers, setDrawnNumbers] = useState<number[]>([]);
   const [currentNumber, setCurrentNumber] = useState<number | null>(null);
+  const [bingoActivo, setBingoActivo] = useState<boolean>(false);
+  const [isLoadingState, setIsLoadingState] = useState<boolean>(true);
   const [isConnected, setIsConnected] = useState(false);
   const [viewerCount, setViewerCount] = useState(1);
   const [highlightNew, setHighlightNew] = useState<number | null>(null);
@@ -54,10 +56,40 @@ export default function TransmisionPage() {
     () => new Set(['0-2', '1-2', '2-2', '3-2', '4-2'])
   );
   const [showFiguraModal, setShowFiguraModal] = useState<boolean>(false);
+  const [showStartAnimation, setShowStartAnimation] = useState<boolean>(false);
   const prevCountRef = useRef(0);
+  const prevActiveRef = useRef<boolean | null>(null);
+  const startAnimTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const drawnSet = new Set(drawnNumbers);
   const pct = Math.round((drawnNumbers.length / 75) * 100);
+
+  const triggerStartBingoAnimation = useCallback(() => {
+    setShowStartAnimation(true);
+    try {
+      confetti({
+        particleCount: 90,
+        spread: 85,
+        origin: { y: 0.55 },
+        colors: ['#fbbf24', '#3b82f6', '#ef4444', '#22c55e', '#a855f7'],
+      });
+    } catch {
+      // Ignore confetti errors
+    }
+    if (startAnimTimeoutRef.current) clearTimeout(startAnimTimeoutRef.current);
+    startAnimTimeoutRef.current = setTimeout(() => {
+      setShowStartAnimation(false);
+    }, 3200);
+  }, []);
+
+  const evaluateBingoActive = (state: BingoState | null | undefined): boolean => {
+    if (!state) return false;
+    return (
+      Boolean(state.juegoIniciado) ||
+      Boolean(state.enSorteo) ||
+      (Array.isArray(state.numerosSalidos) && state.numerosSalidos.length > 0)
+    );
+  };
 
   // Real-time functional viewer count from Firestore presence document
   useEffect(() => {
@@ -69,51 +101,114 @@ export default function TransmisionPage() {
 
   // Initial load from Firestore database
   useEffect(() => {
-    getBingoGameState().then((state: BingoState) => {
-      if (state.juegoIniciado) {
-        setDrawnNumbers(state.numerosSalidos);
-        setCurrentNumber(state.ultimoNumero);
-      } else {
-        setDrawnNumbers([]);
-        setCurrentNumber(null);
-      }
-      if (state.figura) setFiguraName(state.figura);
-      if (state.patronFigura && Array.isArray(state.patronFigura) && state.patronFigura.length > 0) {
-        setFiguraPattern(new Set(state.patronFigura));
-      }
-    });
+    getBingoGameState()
+      .then((state: BingoState) => {
+        const active = evaluateBingoActive(state);
+        prevActiveRef.current = active;
+        setBingoActivo(active);
+        if (active) {
+          setDrawnNumbers(state.numerosSalidos || []);
+          setCurrentNumber(state.ultimoNumero ?? null);
+          prevCountRef.current = (state.numerosSalidos || []).length;
+        } else {
+          setDrawnNumbers([]);
+          setCurrentNumber(null);
+          prevCountRef.current = 0;
+        }
+        if (state.figura) setFiguraName(state.figura);
+        if (
+          state.patronFigura &&
+          Array.isArray(state.patronFigura) &&
+          state.patronFigura.length > 0
+        ) {
+          setFiguraPattern(new Set(state.patronFigura));
+        }
+      })
+      .finally(() => {
+        setIsLoadingState(false);
+      });
   }, []);
 
-  // Real-time Firestore listener for bingo game state
+  // Real-time Firestore listener + LocalStorage fallback for bingo game state
   useEffect(() => {
     const { db, isConfigured } = initializeFirebase();
-    if (!isConfigured || !db) return;
+    let unsub: (() => void) | null = null;
 
-    const unsub = onSnapshot(
-      doc(db, 'bingo_estado', 'partida_actual'),
-      (snap) => {
-        setIsConnected(true);
-        if (snap.exists()) {
-          const data = snap.data() as BingoState;
-          const prev = prevCountRef.current;
-          if (data.numerosSalidos.length > prev) {
-            setHighlightNew(data.ultimoNumero);
-            setTimeout(() => setHighlightNew(null), 3000);
+    if (isConfigured && db) {
+      unsub = onSnapshot(
+        doc(db, 'bingo_estado', 'partida_actual'),
+        (snap) => {
+          setIsConnected(true);
+          setIsLoadingState(false);
+          if (snap.exists()) {
+            const data = snap.data() as BingoState;
+            const active = evaluateBingoActive(data);
+            const wasActive = prevActiveRef.current;
+            const salidos = Array.isArray(data.numerosSalidos) ? data.numerosSalidos : [];
+
+            if (active && wasActive === false) {
+              triggerStartBingoAnimation();
+            } else if (!active) {
+              setShowStartAnimation(false);
+            }
+            prevActiveRef.current = active;
+            setBingoActivo(active);
+
+            const prev = prevCountRef.current;
+            if (active && salidos.length > prev) {
+              setHighlightNew(data.ultimoNumero);
+              setTimeout(() => setHighlightNew(null), 3000);
+            }
+            prevCountRef.current = active ? salidos.length : 0;
+            setDrawnNumbers(active ? salidos : []);
+            setCurrentNumber(active ? data.ultimoNumero : null);
+            if (data.figura) setFiguraName(data.figura);
+            if (data.patronFigura && Array.isArray(data.patronFigura)) {
+              setFiguraPattern(new Set(data.patronFigura));
+            }
+          } else {
+            prevActiveRef.current = false;
+            setBingoActivo(false);
+            setShowStartAnimation(false);
+            setDrawnNumbers([]);
+            setCurrentNumber(null);
           }
-          prevCountRef.current = data.numerosSalidos.length;
-          setDrawnNumbers(data.numerosSalidos);
-          setCurrentNumber(data.ultimoNumero);
+        },
+        () => setIsConnected(false)
+      );
+      setIsConnected(true);
+    }
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'eventos_ina_bingo_state' && e.newValue) {
+        try {
+          const data = JSON.parse(e.newValue) as BingoState;
+          const active = evaluateBingoActive(data);
+          if (active && prevActiveRef.current === false) {
+            triggerStartBingoAnimation();
+          } else if (!active) {
+            setShowStartAnimation(false);
+          }
+          prevActiveRef.current = active;
+          setBingoActivo(active);
+          setDrawnNumbers(active ? data.numerosSalidos || [] : []);
+          setCurrentNumber(active ? data.ultimoNumero ?? null : null);
           if (data.figura) setFiguraName(data.figura);
           if (data.patronFigura && Array.isArray(data.patronFigura)) {
             setFiguraPattern(new Set(data.patronFigura));
           }
+        } catch {
+          // ignore
         }
-      },
-      () => setIsConnected(false)
-    );
-    setIsConnected(true);
-    return () => unsub();
-  }, []);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      if (unsub) unsub();
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [triggerStartBingoAnimation]);
 
   const currentLetter = currentNumber ? getLetterForNum(currentNumber) : null;
   const lastFiveNumbers = drawnNumbers.slice(-5).reverse();
@@ -136,399 +231,545 @@ export default function TransmisionPage() {
         <path d="M820,0 Q880,120 850,300" stroke="#fbbf24" strokeWidth="4" fill="none" />
       </svg>
 
-      {/* ── TOP BAR (SAME HERO & CONTROLS LAYOUT AS BINGO EN VIVO 2) ────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '6px 12px',
-        background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(10px)',
-        borderRadius: 16, border: '1px solid rgba(255,255,255,0.25)',
-        flexWrap: 'wrap', position: 'relative', zIndex: 10, flexShrink: 0,
-      }}>
-        {/* Big hero ball */}
-        <div style={{
-          width: 'clamp(84px, 7.5vw, 110px)', height: 'clamp(84px, 7.5vw, 110px)',
-          minWidth: 80, minHeight: 80, borderRadius: '50%',
-          background: currentLetter
-            ? `radial-gradient(circle at 35% 30%, ${LETTER_COLORS[currentLetter].text}, ${LETTER_COLORS[currentLetter].bg} 50%, ${LETTER_COLORS[currentLetter].dark})`
-            : 'radial-gradient(circle at 35% 30%, #e2e8f0, #94a3b8 50%, #475569)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          border: '4px solid #fbbf24',
-          boxShadow: currentLetter ? `${LETTER_COLORS[currentLetter].glow}, 0 6px 20px rgba(0,0,0,0.4)` : '0 6px 20px rgba(0,0,0,0.4)',
-          transition: 'all 0.1s ease', flexShrink: 0,
-          animation: highlightNew && highlightNew === currentNumber ? 'tx-pop 0.5s ease' : 'none',
-        }}>
-          {currentLetter && (
-            <span style={{ fontSize: 'clamp(18px, 1.4vw, 28px)', fontWeight: 900, color: 'black', lineHeight: 1, letterSpacing: 2, textShadow: '0 2px 4px rgba(0,0,0,0.6)' }}>
-              {currentLetter}
-            </span>
-          )}
-          <span style={{ fontSize: currentNumber ? 'clamp(34px, 3.6vw, 48px)' : 'clamp(24px, 2.6vw, 32px)', fontWeight: 900, color: 'black', lineHeight: 1, textShadow: '0 2px 8px rgba(0,0,0,0.6)' }}>
-            {currentNumber ?? '?'}
-          </span>
-        </div>
+      {!isLoadingState && !bingoActivo ? (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px 16px',
+            position: 'relative',
+            zIndex: 10,
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 540,
+              width: '100%',
+              background: 'rgba(15, 23, 42, 0.45)',
+              backdropFilter: 'blur(16px)',
+              borderRadius: 28,
+              border: '2px solid rgba(251, 191, 36, 0.45)',
+              padding: '36px 28px',
+              textAlign: 'center',
+              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.45)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 18,
+            }}
+          >
+            {/* Animated Waiting Icon Badge */}
+            <div
+              style={{
+                width: 84,
+                height: 84,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #fbbf24, #d97706)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 0 28px rgba(251, 191, 36, 0.5)',
+                border: '4px solid rgba(255, 255, 255, 0.85)',
+              }}
+            >
+              <Clock size={40} style={{ color: '#0f172a' }} />
+            </div>
 
-        {/* Last numbers section */}
-        <div style={{ flex: 1, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 6, padding: '6px 12px' }}>
-          <div style={{ fontSize: 11, fontWeight: 900, color: '#fbbf24', letterSpacing: 1.2, textTransform: 'uppercase', textShadow: '0 1px 3px rgba(0,0,0,0.4)' }}>
-            ÚLTIMOS NÚMEROS
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '5px 14px',
+                borderRadius: 999,
+                background: 'rgba(251, 191, 36, 0.18)',
+                border: '1px solid rgba(251, 191, 36, 0.45)',
+                color: '#fde68a',
+                fontSize: 12,
+                fontWeight: 800,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+              }}
+            >
+              <Sparkles size={14} /> Sala de Transmisión en Espera
+            </div>
+
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 'clamp(24px, 4vw, 34px)',
+                fontWeight: 900,
+                color: 'white',
+                lineHeight: 1.2,
+                textShadow: '0 2px 10px rgba(0,0,0,0.4)',
+              }}
+            >
+              El bingo todavía no ha comenzado
+            </h1>
+
+            <p
+              style={{
+                margin: 0,
+                fontSize: 14,
+                color: 'rgba(255, 255, 255, 0.82)',
+                lineHeight: 1.5,
+                maxWidth: 420,
+              }}
+            >
+              Mantén esta pantalla abierta. En cuanto el operador inicie el sorteo de bolillas, el tablero en vivo aparecerá automáticamente en tiempo real.
+            </p>
+
+            {/* Preview Figura + Viewers + Connection */}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                marginTop: 6,
+              }}
+            >
+
+              {/* <button
+                type="button"
+                onClick={() => setShowFiguraModal(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 14px',
+                  borderRadius: 12,
+                  background: 'rgba(255, 255, 255, 0.14)',
+                  border: '1.5px solid #fbbf24',
+                  color: 'white',
+                  fontWeight: 800,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                <Sparkles size={15} style={{ color: '#fbbf24' }} />
+                <span>Figura configurada: {figuraName}</span>
+              </button> */}
+
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  background: 'rgba(15, 23, 42, 0.5)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  color: 'white',
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                <Eye size={14} style={{ color: '#38bdf8' }} />
+                <span>{viewerCount} en sala</span>
+              </div>
+
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '8px 12px',
+                  borderRadius: 12,
+                  background: 'rgba(15, 23, 42, 0.5)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: isConnected ? '#86efac' : '#fca5a5',
+                }}
+              >
+                {isConnected ? <Wifi size={14} /> : <WifiOff size={14} />}
+                <span>{isConnected ? 'Conectado' : 'Conectando...'}</span>
+              </div>
+            </div>
           </div>
+        </div>
+      ) : (
+        <>
+          {/* ── TOP BAR (SAME HERO & CONTROLS LAYOUT AS BINGO EN VIVO 2) ────────── */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '6px 12px',
+            background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(10px)',
+            borderRadius: 16, border: '1px solid rgba(255,255,255,0.25)',
+            flexWrap: 'wrap', position: 'relative', zIndex: 10, flexShrink: 0,
+          }}>
+            {/* Big hero ball */}
+            <div style={{
+              width: 'clamp(84px, 7.5vw, 110px)', height: 'clamp(84px, 7.5vw, 110px)',
+              minWidth: 80, minHeight: 80, borderRadius: '50%',
+              background: currentLetter
+                ? `radial-gradient(circle at 35% 30%, ${LETTER_COLORS[currentLetter].text}, ${LETTER_COLORS[currentLetter].bg} 50%, ${LETTER_COLORS[currentLetter].dark})`
+                : 'radial-gradient(circle at 35% 30%, #e2e8f0, #94a3b8 50%, #475569)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              border: '4px solid #fbbf24',
+              boxShadow: currentLetter ? `${LETTER_COLORS[currentLetter].glow}, 0 6px 20px rgba(0,0,0,0.4)` : '0 6px 20px rgba(0,0,0,0.4)',
+              transition: 'all 0.1s ease', flexShrink: 0,
+              animation: highlightNew && highlightNew === currentNumber ? 'tx-pop 0.5s ease' : 'none',
+            }}>
+              {currentLetter && (
+                <span style={{ fontSize: 'clamp(18px, 1.4vw, 28px)', fontWeight: 900, color: 'black', lineHeight: 1, letterSpacing: 2, textShadow: '0 2px 4px rgba(0,0,0,0.6)' }}>
+                  {currentLetter}
+                </span>
+              )}
+              <span style={{ fontSize: currentNumber ? 'clamp(34px, 3.6vw, 48px)' : 'clamp(24px, 2.6vw, 32px)', fontWeight: 900, color: 'black', lineHeight: 1, textShadow: '0 2px 8px rgba(0,0,0,0.6)' }}>
+                {currentNumber ?? '?'}
+              </span>
+            </div>
 
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            {last3Slots.map((num, i) => {
-              if (!num) {
-                return (
-                  <div key={i} style={{
-                    padding: '5px 12px', borderRadius: 20,
-                    background: 'rgba(255,255,255,0.1)', border: '2px solid rgba(255,255,255,0.2)',
-                    minWidth: 46, textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.3)', fontWeight: 700,
-                  }}>—</div>
-                );
-              }
-              const letter = getLetterForNum(num);
-              const colors = LETTER_COLORS[letter];
-              return (
+            {/* Last numbers section */}
+            <div style={{ flex: 1, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 6, padding: '6px 12px' }}>
+              <div style={{ fontSize: 11, fontWeight: 900, color: '#fbbf24', letterSpacing: 1.2, textTransform: 'uppercase', textShadow: '0 1px 3px rgba(0,0,0,0.4)' }}>
+                ÚLTIMOS NÚMEROS
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                {last3Slots.map((num, i) => {
+                  if (!num) {
+                    return (
+                      <div key={i} style={{
+                        padding: '5px 12px', borderRadius: 20,
+                        background: 'rgba(255,255,255,0.1)', border: '2px solid rgba(255,255,255,0.2)',
+                        minWidth: 46, textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.3)', fontWeight: 700,
+                      }}>—</div>
+                    );
+                  }
+                  const letter = getLetterForNum(num);
+                  const colors = LETTER_COLORS[letter];
+                  return (
+                    <div
+                      key={i}
+                      className="py-[2px] px-[9px] md:py-[10px] md:px-[20px]"
+                      style={{
+                        borderRadius: 40,
+                        background: `radial-gradient(circle at 35% 30%, ${colors.text}, ${colors.bg} 50%, ${colors.dark})`,
+                        border: '2px solid rgba(255,255,255,0.4)',
+                        minWidth: 32, textAlign: 'center',
+                        boxShadow: i === 0 ? `0 0 14px ${colors.bg}` : 'none',
+                      }}
+                    >
+                      <div style={{ fontSize: 14, fontWeight: 900, color: 'black', letterSpacing: 1 }}>{letter}</div>
+                      <div style={{ fontSize: 24, fontWeight: 900, color: 'black', lineHeight: 1 }}>{num}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Live badge + Figura button + Viewers + Connection + Back */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                borderRadius: 20, boxShadow: '0 0 16px rgba(239,68,68,0.6)',
+              }}>
+                <Radio size={14} style={{ color: 'white' }} />
+                <span style={{ fontSize: 12, fontWeight: 900, color: 'white', letterSpacing: 1 }}>EN VIVO</span>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'white', animation: 'tx-blink 1s ease infinite' }} />
+              </div>
+
+              {/* FIGURA A FORMAR BUTTON */}
+              <button
+                type="button"
+                onClick={() => setShowFiguraModal(true)}
+                title="Ver figura a formar en la cartilla"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '6px 12px',
+                  borderRadius: 12,
+                  background: 'rgba(255,255,255,0.18)',
+                  border: '2px solid #fbbf24',
+                  color: 'white',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 10px rgba(251,191,36,0.3)',
+                }}
+              >
                 <div
-                  key={i}
-                  className="py-[2px] px-[9px] md:py-[10px] md:px-[20px]"
                   style={{
-                    borderRadius: 40,
-                    background: `radial-gradient(circle at 35% 30%, ${colors.text}, ${colors.bg} 50%, ${colors.dark})`,
-                    border: '2px solid rgba(255,255,255,0.4)',
-                    minWidth: 32, textAlign: 'center',
-                    boxShadow: i === 0 ? `0 0 14px ${colors.bg}` : 'none',
+                    display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)',
+                    gap: 1.5, width: 24, height: 24, padding: 1.5,
+                    background: 'rgba(15, 23, 42, 0.75)', borderRadius: 4,
+                    border: '1px solid rgba(251,191,36,0.5)',
                   }}
                 >
-                  <div style={{ fontSize: 14, fontWeight: 900, color: 'black', letterSpacing: 1 }}>{letter}</div>
-                  <div style={{ fontSize: 24, fontWeight: 900, color: 'black', lineHeight: 1 }}>{num}</div>
+                  {Array.from({ length: 25 }, (_, idx) => {
+                    const col = idx % 5;
+                    const row = Math.floor(idx / 5);
+                    const isMarked = figuraPattern.has(`${col}-${row}`);
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          borderRadius: 1,
+                          background: isMarked ? '#fbbf24' : 'rgba(255,255,255,0.2)',
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                <div style={{ textAlign: 'left', lineHeight: 1.1 }}>
+                  <div style={{ fontSize: 8, fontWeight: 900, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    FIGURA
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: 'white', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {figuraName}
+                  </div>
+                </div>
+              </button>
+
+              <div
+                title="Espectadores conectados en tiempo real"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '6px 10px', borderRadius: 12,
+                  background: 'rgba(15, 23, 42, 0.35)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  fontSize: 12, color: 'white', fontWeight: 800,
+                }}
+              >
+                <Eye size={14} style={{ color: '#38bdf8' }} />
+                <span>{viewerCount}</span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: isConnected ? '#86efac' : '#fca5a5' }}>
+                {isConnected ? <Wifi size={14} /> : <WifiOff size={14} />}
+                <span className="hidden sm:inline">{isConnected ? 'Conectado' : 'Sin conexión'}</span>
+              </div>
+            </div>
+
+            {/* Counter */}
+            <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 12, padding: '6px 14px', textAlign: 'center', flexShrink: 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.7)', letterSpacing: 1 }}>SALIDOS</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: '#fbbf24', lineHeight: 1 }}>{drawnNumbers.length}</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>de 75</div>
+            </div>
+          </div>
+
+          {/* ── DESKTOP BOARD (EXACT BINGO EN VIVO 2 BALL & LETTER SIZES) ── */}
+          <div
+            className="hidden md:flex flex-col justify-between"
+            style={{
+              background: 'rgba(255,255,255,0.12)',
+              backdropFilter: 'blur(10px)',
+              borderRadius: 20,
+              border: '2px solid rgba(255,255,255,0.25)',
+              padding: '10px 14px',
+              gap: 'clamp(6px, 1vh, 10px)',
+              flex: 1,
+              minHeight: 0,
+              position: 'relative',
+              zIndex: 10,
+            }}
+          >
+            {BINGO_LETTERS.map((letter) => {
+              const { start, end } = LETTER_RANGES[letter];
+              const colors = LETTER_COLORS[letter];
+
+              return (
+                <div
+                  key={letter}
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'clamp(8px, 1vw, 14px)',
+                  }}
+                >
+                  {/* Row Letter Badge */}
+                  <div
+                    style={{
+                      width: 'clamp(54px, 5vw, 76px)',
+                      alignSelf: 'stretch',
+                      minHeight: 48,
+                      borderRadius: 14,
+                      background: `linear-gradient(135deg, ${colors.bg}, ${colors.dark})`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 900,
+                      fontSize: 'clamp(24px, 3vw, 40px)',
+                      fontStyle: 'italic',
+                      color: 'white',
+                      textShadow: `2px 2px 6px rgba(0,0,0,0.6), 0 0 16px ${colors.bg}`,
+                      letterSpacing: 1,
+                      border: '2px solid rgba(255,255,255,0.3)',
+                      boxShadow: `0 4px 14px ${colors.glow}`,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {letter}
+                  </div>
+
+                  {/* 15 Balls for this letter row */}
+                  <div className="bingo-balls-grid flex-1">
+                    {Array.from({ length: end - start + 1 }, (_, i) => {
+                      const num = start + i;
+                      const drawn = drawnSet.has(num);
+                      const isLatest = num === currentNumber;
+                      const isNew = num === highlightNew;
+
+                      return (
+                        <div
+                          key={num}
+                          style={{
+                            width: '100%',
+                            maxWidth: 100,
+                            aspectRatio: '1',
+                            margin: '0 auto',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 900,
+                            fontSize: 'clamp(15px, 1.8vw, 32px)',
+                            lineHeight: 1,
+                            position: 'relative',
+                            transition: 'all 0.12s ease',
+                            userSelect: 'none',
+                            background: drawn
+                              ? `radial-gradient(circle at 35% 30%, ${colors.text}, ${colors.bg} 50%, ${colors.dark})`
+                              : 'radial-gradient(circle at 35% 30%, #f8fafc, #e2e8f0 50%, #cbd5e1)',
+                            color: drawn ? 'black' : '#bebfc1ff',
+                            boxShadow: isLatest
+                              ? `0 0 0 3px white, 0 0 0 5px ${colors.bg}, ${colors.glow}`
+                              : drawn
+                                ? `0 2px 8px ${colors.bg}80`
+                                : '0 2px 6px rgba(0,0,0,0.12)',
+                            transform: isLatest ? 'scale(1.1)' : isNew ? 'scale(1.06)' : 'scale(1)',
+                            zIndex: isLatest ? 2 : 1,
+                            border: isLatest
+                              ? '2px solid white'
+                              : drawn
+                                ? '2px solid rgba(255,255,255,0.3)'
+                                : '2px solid rgba(200,210,220,0.6)',
+                            animation: isNew ? 'tx-pop 0.5s ease' : 'none',
+                          }}
+                        >
+                          {num}
+                          {isLatest && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                inset: -4,
+                                borderRadius: '50%',
+                                border: `3px solid ${colors.bg}`,
+                                animation: 'tx-ripple 1s ease infinite',
+                                pointerEvents: 'none',
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })}
           </div>
-        </div>
 
-        {/* Live badge + Figura button + Viewers + Connection + Back */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-            background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-            borderRadius: 20, boxShadow: '0 0 16px rgba(239,68,68,0.6)',
-          }}>
-            <Radio size={14} style={{ color: 'white' }} />
-            <span style={{ fontSize: 12, fontWeight: 900, color: 'white', letterSpacing: 1 }}>EN VIVO</span>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'white', animation: 'tx-blink 1s ease infinite' }} />
-          </div>
+          {/* ── MOBILE BOARD (EXACT BINGO EN VIVO 2 VERTICAL COLUMNS FOR SCREENS < md) ── */}
+          <div className="flex md:hidden flex-col gap-2 p-2 sm:p-3 bg-white/10 backdrop-blur-md rounded-2xl border-2 border-white/20 relative z-10">
+            {/* Sticky Column Headers B-I-N-G-O */}
+            <div className="grid grid-cols-5 gap-1.5 sm:gap-2 sticky top-0 z-20 bg-sky-950/90 backdrop-blur-md py-1.5 rounded-xl px-1">
+              {BINGO_LETTERS.map((letter) => (
+                <div
+                  key={letter}
+                  style={{
+                    background: `linear-gradient(135deg, ${LETTER_COLORS[letter].bg}, ${LETTER_COLORS[letter].dark})`,
+                    boxShadow: `0 2px 10px ${LETTER_COLORS[letter].glow}`,
+                  }}
+                  className="text-center py-2 rounded-xl text-white font-black text-xl sm:text-2xl tracking-wider border border-white/30"
+                >
+                  {letter}
+                </div>
+              ))}
+            </div>
 
-          {/* FIGURA A FORMAR BUTTON */}
-          <button
-            type="button"
-            onClick={() => setShowFiguraModal(true)}
-            title="Ver figura a formar en la cartilla"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '6px 12px',
-              borderRadius: 12,
-              background: 'rgba(255,255,255,0.18)',
-              border: '2px solid #fbbf24',
-              color: 'white',
-              cursor: 'pointer',
-              boxShadow: '0 2px 10px rgba(251,191,36,0.3)',
-            }}
-          >
-            <div
-              style={{
-                display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)',
-                gap: 1.5, width: 24, height: 24, padding: 1.5,
-                background: 'rgba(15, 23, 42, 0.75)', borderRadius: 4,
-                border: '1px solid rgba(251,191,36,0.5)',
-              }}
-            >
-              {Array.from({ length: 25 }, (_, idx) => {
-                const col = idx % 5;
-                const row = Math.floor(idx / 5);
-                const isMarked = figuraPattern.has(`${col}-${row}`);
+            {/* 5 Vertical Columns with balls flowing downwards */}
+            <div className="grid grid-cols-5 gap-1.5 sm:gap-2 px-1">
+              {BINGO_LETTERS.map((letter) => {
+                const { start, end } = LETTER_RANGES[letter];
+                const colors = LETTER_COLORS[letter];
                 return (
-                  <div
-                    key={idx}
-                    style={{
-                      borderRadius: 1,
-                      background: isMarked ? '#fbbf24' : 'rgba(255,255,255,0.2)',
-                    }}
-                  />
+                  <div key={letter} className="flex flex-col gap-1.5 sm:gap-2">
+                    {Array.from({ length: end - start + 1 }, (_, i) => {
+                      const num = start + i;
+                      const drawn = drawnSet.has(num);
+                      const isLatest = num === currentNumber;
+                      const isNew = num === highlightNew;
+
+                      return (
+                        <div
+                          key={num}
+                          style={{
+                            aspectRatio: '1',
+                            background: drawn
+                              ? `radial-gradient(circle at 35% 30%, ${colors.text}, ${colors.bg} 50%, ${colors.dark})`
+                              : 'radial-gradient(circle at 35% 30%, #f8fafc, #e2e8f0 50%, #cbd5e1)',
+                            color: drawn ? 'black' : '#d4d5d5ff',
+                            boxShadow: isLatest
+                              ? `0 0 0 3px white, 0 0 0 5px ${colors.bg}, ${colors.glow}`
+                              : drawn
+                                ? `0 2px 8px ${colors.bg}80`
+                                : '0 2px 5px rgba(0,0,0,0.15)',
+                            transform: isLatest ? 'scale(1.08)' : isNew ? 'scale(1.05)' : 'scale(1)',
+                            animation: isNew ? 'tx-pop 0.5s ease' : 'none',
+                          }}
+                          className={`w-full max-w-[45px] mx-auto rounded-full flex items-center justify-center font-black text-base sm:text-xl select-none relative transition-all duration-150 border ${isLatest ? 'border-white ring-2 ring-amber-300' : drawn ? 'border-white/30' : 'border-slate-300/60'
+                            }`}
+                        >
+                          {num}
+                          {isLatest && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                inset: -3,
+                                borderRadius: '50%',
+                                border: `3px solid ${colors.bg}`,
+                                animation: 'tx-ripple 1s ease infinite',
+                                pointerEvents: 'none',
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </div>
-            <div style={{ textAlign: 'left', lineHeight: 1.1 }}>
-              <div style={{ fontSize: 8, fontWeight: 900, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                FIGURA
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 900, color: 'white', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {figuraName}
-              </div>
-            </div>
-          </button>
-
-          <div
-            title="Espectadores conectados en tiempo real"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '6px 10px', borderRadius: 12,
-              background: 'rgba(15, 23, 42, 0.35)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              fontSize: 12, color: 'white', fontWeight: 800,
-            }}
-          >
-            <Eye size={14} style={{ color: '#38bdf8' }} />
-            <span>{viewerCount}</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: isConnected ? '#86efac' : '#fca5a5' }}>
-            {isConnected ? <Wifi size={14} /> : <WifiOff size={14} />}
-            <span className="hidden sm:inline">{isConnected ? 'Conectado' : 'Sin conexión'}</span>
+          {/* ── PROGRESS BAR ─────────────────────────────────────────────── */}
+          <div style={{ position: 'relative', zIndex: 10, background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '4px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', width: `${pct}%`,
+                background: 'linear-gradient(90deg, #22c55e, #fbbf24, #ef4444)',
+                borderRadius: 4, transition: 'width 0.5s ease',
+                boxShadow: '0 0 8px rgba(251,191,36,0.6)',
+              }} />
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.8)', flexShrink: 0 }}>
+              {drawnNumbers.length}/75 · {pct}%
+            </span>
           </div>
 
-          <Link
-            href="/system/bingo-juego2"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: '6px 12px',
-              borderRadius: 12,
-              background: 'rgba(255,255,255,0.2)',
-              color: 'white',
-              fontSize: 12,
-              fontWeight: 800,
-              textDecoration: 'none',
-              border: '1px solid rgba(255,255,255,0.3)',
-            }}
-          >
-            ← Volver
-          </Link>
-        </div>
-
-        {/* Counter */}
-        <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 12, padding: '6px 14px', textAlign: 'center', flexShrink: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.7)', letterSpacing: 1 }}>SALIDOS</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: '#fbbf24', lineHeight: 1 }}>{drawnNumbers.length}</div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>de 75</div>
-        </div>
-      </div>
-
-      {/* ── DESKTOP BOARD (EXACT BINGO EN VIVO 2 BALL & LETTER SIZES) ── */}
-      <div
-        className="hidden md:flex flex-col justify-between"
-        style={{
-          background: 'rgba(255,255,255,0.12)',
-          backdropFilter: 'blur(10px)',
-          borderRadius: 20,
-          border: '2px solid rgba(255,255,255,0.25)',
-          padding: '10px 14px',
-          gap: 'clamp(6px, 1vh, 10px)',
-          flex: 1,
-          minHeight: 0,
-          position: 'relative',
-          zIndex: 10,
-        }}
-      >
-        {BINGO_LETTERS.map((letter) => {
-          const { start, end } = LETTER_RANGES[letter];
-          const colors = LETTER_COLORS[letter];
-
-          return (
-            <div
-              key={letter}
-              style={{
-                flex: 1,
-                minHeight: 0,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'clamp(8px, 1vw, 14px)',
-              }}
-            >
-              {/* Row Letter Badge */}
-              <div
-                style={{
-                  width: 'clamp(54px, 5vw, 76px)',
-                  alignSelf: 'stretch',
-                  minHeight: 48,
-                  borderRadius: 14,
-                  background: `linear-gradient(135deg, ${colors.bg}, ${colors.dark})`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 900,
-                  fontSize: 'clamp(24px, 3vw, 40px)',
-                  fontStyle: 'italic',
-                  color: 'white',
-                  textShadow: `2px 2px 6px rgba(0,0,0,0.6), 0 0 16px ${colors.bg}`,
-                  letterSpacing: 1,
-                  border: '2px solid rgba(255,255,255,0.3)',
-                  boxShadow: `0 4px 14px ${colors.glow}`,
-                  flexShrink: 0,
-                }}
-              >
-                {letter}
-              </div>
-
-              {/* 15 Balls for this letter row */}
-              <div className="bingo-balls-grid flex-1">
-                {Array.from({ length: end - start + 1 }, (_, i) => {
-                  const num = start + i;
-                  const drawn = drawnSet.has(num);
-                  const isLatest = num === currentNumber;
-                  const isNew = num === highlightNew;
-
-                  return (
-                    <div
-                      key={num}
-                      style={{
-                        width: '100%',
-                        maxWidth: 100,
-                        aspectRatio: '1',
-                        margin: '0 auto',
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 900,
-                        fontSize: 'clamp(15px, 1.8vw, 32px)',
-                        lineHeight: 1,
-                        position: 'relative',
-                        transition: 'all 0.12s ease',
-                        userSelect: 'none',
-                        background: drawn
-                          ? `radial-gradient(circle at 35% 30%, ${colors.text}, ${colors.bg} 50%, ${colors.dark})`
-                          : 'radial-gradient(circle at 35% 30%, #f8fafc, #e2e8f0 50%, #cbd5e1)',
-                        color: drawn ? 'black' : '#bebfc1ff',
-                        boxShadow: isLatest
-                          ? `0 0 0 3px white, 0 0 0 5px ${colors.bg}, ${colors.glow}`
-                          : drawn
-                            ? `0 2px 8px ${colors.bg}80`
-                            : '0 2px 6px rgba(0,0,0,0.12)',
-                        transform: isLatest ? 'scale(1.1)' : isNew ? 'scale(1.06)' : 'scale(1)',
-                        zIndex: isLatest ? 2 : 1,
-                        border: isLatest
-                          ? '2px solid white'
-                          : drawn
-                            ? '2px solid rgba(255,255,255,0.3)'
-                            : '2px solid rgba(200,210,220,0.6)',
-                        animation: isNew ? 'tx-pop 0.5s ease' : 'none',
-                      }}
-                    >
-                      {num}
-                      {isLatest && (
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: -4,
-                            borderRadius: '50%',
-                            border: `3px solid ${colors.bg}`,
-                            animation: 'tx-ripple 1s ease infinite',
-                            pointerEvents: 'none',
-                          }}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ── MOBILE BOARD (EXACT BINGO EN VIVO 2 VERTICAL COLUMNS FOR SCREENS < md) ── */}
-      <div className="flex md:hidden flex-col gap-2 p-2 sm:p-3 bg-white/10 backdrop-blur-md rounded-2xl border-2 border-white/20 relative z-10">
-        {/* Sticky Column Headers B-I-N-G-O */}
-        <div className="grid grid-cols-5 gap-1.5 sm:gap-2 sticky top-0 z-20 bg-sky-950/90 backdrop-blur-md py-1.5 rounded-xl px-1">
-          {BINGO_LETTERS.map((letter) => (
-            <div
-              key={letter}
-              style={{
-                background: `linear-gradient(135deg, ${LETTER_COLORS[letter].bg}, ${LETTER_COLORS[letter].dark})`,
-                boxShadow: `0 2px 10px ${LETTER_COLORS[letter].glow}`,
-              }}
-              className="text-center py-2 rounded-xl text-white font-black text-xl sm:text-2xl tracking-wider border border-white/30"
-            >
-              {letter}
-            </div>
-          ))}
-        </div>
-
-        {/* 5 Vertical Columns with balls flowing downwards */}
-        <div className="grid grid-cols-5 gap-1.5 sm:gap-2 px-1">
-          {BINGO_LETTERS.map((letter) => {
-            const { start, end } = LETTER_RANGES[letter];
-            const colors = LETTER_COLORS[letter];
-            return (
-              <div key={letter} className="flex flex-col gap-1.5 sm:gap-2">
-                {Array.from({ length: end - start + 1 }, (_, i) => {
-                  const num = start + i;
-                  const drawn = drawnSet.has(num);
-                  const isLatest = num === currentNumber;
-                  const isNew = num === highlightNew;
-
-                  return (
-                    <div
-                      key={num}
-                      style={{
-                        aspectRatio: '1',
-                        background: drawn
-                          ? `radial-gradient(circle at 35% 30%, ${colors.text}, ${colors.bg} 50%, ${colors.dark})`
-                          : 'radial-gradient(circle at 35% 30%, #f8fafc, #e2e8f0 50%, #cbd5e1)',
-                        color: drawn ? 'black' : '#d4d5d5ff',
-                        boxShadow: isLatest
-                          ? `0 0 0 3px white, 0 0 0 5px ${colors.bg}, ${colors.glow}`
-                          : drawn
-                            ? `0 2px 8px ${colors.bg}80`
-                            : '0 2px 5px rgba(0,0,0,0.15)',
-                        transform: isLatest ? 'scale(1.08)' : isNew ? 'scale(1.05)' : 'scale(1)',
-                        animation: isNew ? 'tx-pop 0.5s ease' : 'none',
-                      }}
-                      className={`w-full max-w-[45px] mx-auto rounded-full flex items-center justify-center font-black text-base sm:text-xl select-none relative transition-all duration-150 border ${
-                        isLatest ? 'border-white ring-2 ring-amber-300' : drawn ? 'border-white/30' : 'border-slate-300/60'
-                      }`}
-                    >
-                      {num}
-                      {isLatest && (
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: -3,
-                            borderRadius: '50%',
-                            border: `3px solid ${colors.bg}`,
-                            animation: 'tx-ripple 1s ease infinite',
-                            pointerEvents: 'none',
-                          }}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── PROGRESS BAR ─────────────────────────────────────────────── */}
-      <div style={{ position: 'relative', zIndex: 10, background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '4px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
-          <div style={{
-            height: '100%', width: `${pct}%`,
-            background: 'linear-gradient(90deg, #22c55e, #fbbf24, #ef4444)',
-            borderRadius: 4, transition: 'width 0.5s ease',
-            boxShadow: '0 0 8px rgba(251,191,36,0.6)',
-          }} />
-        </div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.8)', flexShrink: 0 }}>
-          {drawnNumbers.length}/75 · {pct}%
-        </span>
-      </div>
-
-      {/* ── FOOTER ───────────────────────────────────────────────────── */}
-      <div style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: 600, position: 'relative', zIndex: 10 }}>
-        Transmisión en tiempo real — EVENTOS INA · Los números se actualizan automáticamente
-      </div>
+          {/* ── FOOTER ───────────────────────────────────────────────────── */}
+          <div style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: 600, position: 'relative', zIndex: 10 }}>
+            Transmisión en tiempo real — EVENTOS INA · Los números se actualizan automáticamente
+          </div>
+        </>
+      )}
 
       {/* ── SPECTATOR FIGURA MODAL ────────────────────────────────────── */}
       {showFiguraModal && (
@@ -663,6 +904,119 @@ export default function TransmisionPage() {
         </div>
       )}
 
+      {/* ── BINGO STARTED CELEBRATION OVERLAY ─────────────────────────────── */}
+      {showStartAnimation && (
+        <div
+          onClick={() => setShowStartAnimation(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 950,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'radial-gradient(circle, rgba(15,23,42,0.72) 0%, rgba(2,6,23,0.88) 100%)',
+            backdropFilter: 'blur(6px)',
+            padding: 16,
+            cursor: 'pointer',
+          }}
+        >
+          <div
+            style={{
+              animation: 'tx-start-overlay 3.2s cubic-bezier(0.22, 1, 0.36, 1) forwards',
+              background: 'linear-gradient(135deg, #0c4a6e 0%, #0369a1 50%, #1e3a8a 100%)',
+              border: '3px solid #fbbf24',
+              borderRadius: 28,
+              padding: '28px 36px',
+              maxWidth: 520,
+              width: '100%',
+              textAlign: 'center',
+              boxShadow: '0 0 60px rgba(251, 191, 36, 0.55), 0 25px 60px rgba(0, 0, 0, 0.7)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 16,
+            }}
+          >
+            {/* Bouncing B-I-N-G-O Spheres */}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              {BINGO_LETTERS.map((letter, idx) => {
+                const colors = LETTER_COLORS[letter];
+                return (
+                  <div
+                    key={letter}
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: '50%',
+                      background: `radial-gradient(circle at 35% 30%, ${colors.text}, ${colors.bg} 55%, ${colors.dark})`,
+                      border: '2.5px solid #ffffff',
+                      boxShadow: `0 6px 16px ${colors.bg}90`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 900,
+                      fontSize: 22,
+                      color: '#0f172a',
+                      animation: `tx-ball-bounce 0.7s ease-in-out ${idx * 0.1}s infinite`,
+                    }}
+                  >
+                    {letter}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 14px',
+                borderRadius: 999,
+                background: 'rgba(251, 191, 36, 0.2)',
+                border: '1px solid rgba(251, 191, 36, 0.5)',
+                color: '#fde68a',
+                fontSize: 12,
+                fontWeight: 900,
+                letterSpacing: 1.5,
+                textTransform: 'uppercase',
+              }}
+            >
+              <Sparkles size={14} /> Transmisión en Vivo Iniciada
+            </div>
+
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 'clamp(26px, 4.5vw, 38px)',
+                fontWeight: 900,
+                color: '#ffffff',
+                letterSpacing: 0.5,
+                lineHeight: 1.15,
+                textShadow: '0 4px 16px rgba(0,0,0,0.5)',
+              }}
+            >
+              ¡EL BINGO HA INICIADO!
+            </h2>
+
+            <div
+              style={{
+                padding: '8px 18px',
+                borderRadius: 14,
+                background: 'rgba(15, 23, 42, 0.55)',
+                border: '1px solid rgba(251, 191, 36, 0.4)',
+                color: '#fbbf24',
+                fontSize: 14,
+                fontWeight: 800,
+              }}
+            >
+              🎯 Figura a formar: <span style={{ color: '#ffffff' }}>{figuraName}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Animations */}
       <style>{`
         @keyframes tx-blink {
@@ -678,6 +1032,17 @@ export default function TransmisionPage() {
           40% { transform: scale(1.25); }
           70% { transform: scale(0.95); }
           100% { transform: scale(1.1); }
+        }
+        @keyframes tx-start-overlay {
+          0% { opacity: 0; transform: scale(0.75); }
+          15% { opacity: 1; transform: scale(1.04); }
+          25% { opacity: 1; transform: scale(1); }
+          82% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0; transform: scale(1.08); }
+        }
+        @keyframes tx-ball-bounce {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-10px) scale(1.08); }
         }
       `}</style>
     </div>

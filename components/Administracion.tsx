@@ -48,6 +48,7 @@ import {
   getSavedBluetoothPrinterName,
   getPrintingConfigStatus,
   isWebBluetoothSupported,
+  buildThermalTicketLines,
 } from '../lib/bluetoothPrinter';
 import {
   ViandaProducto,
@@ -239,6 +240,7 @@ export const Administracion: React.FC<AdministracionProps> = ({
   // Loading states to prevent duplicates
   const [isSavingVianda, setIsSavingVianda] = useState(false);
   const [isSavingTicketProd, setIsSavingTicketProd] = useState(false);
+  const [isSavingBingoPrecios, setIsSavingBingoPrecios] = useState(false);
   const [isSavingModalidad, setIsSavingModalidad] = useState(false);
   const [isSavingUser, setIsSavingUser] = useState(false);
   const [isSavingEvento, setIsSavingEvento] = useState(false);
@@ -689,20 +691,26 @@ export const Administracion: React.FC<AdministracionProps> = ({
 
   const handleSaveBingoConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    const updated: ConfiguracionEvento = {
-      ...eventConfig,
-      bingoPrecios: {
-        ...bingoPrecios,
-        precio1: parseFloat(bPrecio1Input) || 0,
-        precio2: parseFloat(bPrecio2Input) || 0,
-      },
-      impresion: impresionConfig,
-    };
-    setEventConfig(updated);
-    await saveConfiguracionEvento(updated);
-    await loadData();
-    onConfigUpdated(updated);
-    showNotice('¡Precios de tarjetas de bingo actualizados con éxito!');
+    if (isSavingBingoPrecios) return;
+    setIsSavingBingoPrecios(true);
+    try {
+      const updated: ConfiguracionEvento = {
+        ...eventConfig,
+        bingoPrecios: {
+          ...bingoPrecios,
+          precio1: parseFloat(bPrecio1Input) || 0,
+          precio2: parseFloat(bPrecio2Input) || 0,
+        },
+        impresion: impresionConfig,
+      };
+      setEventConfig(updated);
+      await saveConfiguracionEvento(updated);
+      await loadData();
+      onConfigUpdated(updated);
+      showNotice('¡Precios de tarjetas de bingo actualizados con éxito!');
+    } finally {
+      setIsSavingBingoPrecios(false);
+    }
   };
 
   // ---- Multi-Event CRUD Handlers ----
@@ -2300,9 +2308,20 @@ export const Administracion: React.FC<AdministracionProps> = ({
 
             <button
               type="submit"
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl shadow-lg shadow-indigo-600/25 transition text-sm flex items-center justify-center gap-2"
+              disabled={isSavingBingoPrecios}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl shadow-lg shadow-indigo-600/25 transition text-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Save className="w-4 h-4" /> Guardar Precios de Bingo
+              {isSavingBingoPrecios ? (
+                <>
+                  <LoadingSpinner size="sm" color="text-white" />
+                  <span>Guardando Precios de Bingo...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>Guardar Precios de Bingo</span>
+                </>
+              )}
             </button>
           </form>
         </div>
@@ -3194,99 +3213,93 @@ export const Administracion: React.FC<AdministracionProps> = ({
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <span className="text-xs font-black uppercase text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <Eye className="w-4 h-4 text-teal-500" />
-                  Vista Previa en Vivo del Ticket
+                  Vista Previa Exacta ({impresionConfig.anchoPapel || '58mm'})
                 </span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
                   {impresionConfig.modoAhorroPapel ? 'Modo Compacto' : 'Modo Normal'}
                 </span>
               </div>
 
-              <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-950 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-2xl font-mono text-slate-800 dark:text-slate-200 shadow-inner">
-                <div className={`text-center border-b border-dashed border-slate-300 dark:border-slate-800 ${impresionConfig.modoAhorroPapel ? 'pb-2' : 'pb-3'}`}>
-                  {impresionConfig.mostrarLogo && (
-                    <div className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 text-amber-800 font-black text-xs mb-1">
-                      INA
-                    </div>
-                  )}
-                  {impresionConfig.mostrarEncabezado && (
-                    <h4 className="font-black text-xs tracking-wider uppercase text-slate-900 dark:text-white">
-                      {eventConfig.nombreEvento || 'EVENTOS INA'}
-                    </h4>
-                  )}
-                  {impresionConfig.mostrarSubtitulo && eventConfig.subtitulo && (
-                    <p className="text-[10px] text-slate-500">{eventConfig.subtitulo}</p>
-                  )}
-                  {impresionConfig.mostrarLugar && eventConfig.lugar && (
-                    <p className="text-[10px] text-slate-400">{eventConfig.lugar}</p>
-                  )}
-                  <div className="mt-1 inline-block px-2 py-0.5 bg-slate-200 dark:bg-slate-800 rounded text-[11px] font-bold">
-                    TICKET N° V-0001
-                  </div>
-                </div>
+              {(() => {
+                const samplePaper = impresionConfig.anchoPapel || '58mm';
+                const sampleLayout = buildThermalTicketLines({
+                  tipo: 'vianda',
+                  ticketVianda: {
+                    id: 'sample-1',
+                    numeroTicket: 'V-0001',
+                    comprador: 'Juan Carlos Perez',
+                    telefono: '11 2345-6789',
+                    items: [
+                      {
+                        productoId: 'v-1',
+                        nombre: 'Pollo al Espiedo con Papas',
+                        precioUnitario: 5000,
+                        etiquetaPrecio: 'General',
+                        cantidad: 1,
+                        subtotal: 5000,
+                      },
+                    ],
+                    total: 5000,
+                    modalidadPago: 'efectivo',
+                    estadoPago: 'pagado',
+                    entregado: false,
+                    fecha: new Date().toISOString(),
+                    fechaFormateada: '12/10/26 16:30',
+                  },
+                  config: {
+                    ...eventConfig,
+                    impresion: impresionConfig,
+                  },
+                  anchoPapel: samplePaper,
+                });
 
-                <div className={`text-[11px] space-y-1 text-slate-600 dark:text-slate-400 border-b border-dashed border-slate-300 dark:border-slate-800 ${impresionConfig.modoAhorroPapel ? 'py-1.5' : 'py-2.5'}`}>
-                  {impresionConfig.mostrarFechaHora && (
-                    <div className="flex justify-between">
-                      <span>Fecha / Hora:</span>
-                      <span className="font-bold">12/10/26 16:30</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span>Titular:</span>
-                    <strong className="text-slate-900 dark:text-white">Juan Pérez</strong>
-                  </div>
-                  {impresionConfig.mostrarTelefono && (
-                    <div className="flex justify-between">
-                      <span>Teléfono:</span>
-                      <span>11 2345-6789</span>
-                    </div>
-                  )}
-                  {impresionConfig.mostrarModalidadPago && (
-                    <div className="flex justify-between">
-                      <span>Pago:</span>
-                      <span className="uppercase font-bold">EFECTIVO</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className={`border-b border-dashed border-slate-300 dark:border-slate-800 text-[11px] space-y-1 ${impresionConfig.modoAhorroPapel ? 'py-1.5' : 'py-2.5'}`}>
-                  <div className="flex justify-between">
-                    <span>1x Pollo con Papas (General)</span>
-                    <span className="font-bold">$ 5.000,00</span>
-                  </div>
-                  <div className="pt-1 flex justify-between font-black text-xs text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800">
-                    <span>TOTAL:</span>
-                    <span className="text-emerald-600">$ 5.000,00</span>
-                  </div>
-                </div>
-
-                {impresionConfig.mostrarEstadoPago && (
-                  <div className="text-center pt-2">
-                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black border border-emerald-300">
-                      ESTADO: PAGADO
-                    </span>
-                  </div>
-                )}
-                {impresionConfig.mostrarCodigoBarras && (
-                  <div className="text-center pt-2">
-                    <div className="inline-flex items-end gap-0.5 h-5 px-3 bg-white dark:bg-slate-900 rounded border border-slate-300 dark:border-slate-800">
-                      <div className="w-0.5 h-4 bg-slate-900 dark:bg-white" />
-                      <div className="w-1 h-5 bg-slate-900 dark:bg-white" />
-                      <div className="w-0.5 h-3 bg-slate-900 dark:bg-white" />
-                      <div className="w-1.5 h-5 bg-slate-900 dark:bg-white" />
-                      <div className="w-0.5 h-4 bg-slate-900 dark:bg-white" />
+                return (
+                  <div className="mt-4 p-4 bg-slate-200/70 dark:bg-slate-950 rounded-2xl flex justify-center overflow-x-auto">
+                    <div
+                      className="bg-white text-black shadow-md border border-slate-300 px-3 pt-4 pb-2 font-mono"
+                      style={{
+                        width: samplePaper === '58mm' ? '33ch' : '49ch',
+                        maxWidth: '100%',
+                        fontSize: samplePaper === '58mm' ? '11.5px' : '10.5px',
+                        lineHeight: sampleLayout.compact ? '1.2' : '1.35',
+                      }}
+                    >
+                      {sampleLayout.lines.map((line, idx) => {
+                        const alignClass =
+                          line.align === 'center' ? 'text-center' : 'text-left';
+                        const boldClass = line.bold ? 'font-bold' : '';
+                        const sizeClass =
+                          line.size === 'double'
+                            ? 'font-black text-base py-0.5 tracking-wide'
+                            : line.size === 'double-height'
+                            ? 'font-black text-[12.5px] py-0.5'
+                            : '';
+                        return (
+                          <div
+                            key={idx}
+                            className={`whitespace-pre ${alignClass} ${boldClass} ${sizeClass}`}
+                          >
+                            {line.text || ' '}
+                          </div>
+                        );
+                      })}
+                      <div>
+                        {Array.from({ length: sampleLayout.tearFeedLines }).map((_, idx) => (
+                          <div key={`tear-${idx}`} className="whitespace-pre">
+                            {' '}
+                          </div>
+                        ))}
+                        <div className="border-t border-dashed border-slate-300 pt-1 text-center text-[10px] text-slate-400 select-none">
+                          ✂ Espacio libre de corte ({sampleLayout.tearFeedLines} líneas)
+                        </div>
+                      </div>
                     </div>
                   </div>
-                )}
-                {impresionConfig.mostrarMensajePie && eventConfig.mensajeTicket && (
-                  <p className="text-[10px] text-center italic text-slate-500 pt-2">
-                    {eventConfig.mensajeTicket}
-                  </p>
-                )}
-              </div>
+                );
+              })()}
 
               <div className="mt-3 p-2 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-[11px] text-slate-500 text-center">
-                El comprobante se adaptará en tiempo real según las opciones guardadas.
+                Previsualización idéntica carácter por carácter a la impresión térmica real.
               </div>
             </div>
           </div>

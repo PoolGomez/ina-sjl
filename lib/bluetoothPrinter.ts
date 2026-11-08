@@ -471,7 +471,7 @@ function formatRow(left: string, right: string, width: number): string {
 }
 
 /**
- * Wraps long text into lines of at most `width` characters.
+ * Wraps long text into lines of at most `width` characters without losing any characters.
  */
 function wrapText(text: string, width: number): string[] {
   const cleaned = normalizeThermalText(text).trim();
@@ -480,18 +480,75 @@ function wrapText(text: string, width: number): string[] {
   const lines: string[] = [];
   let current = '';
 
-  for (const word of words) {
+  for (let word of words) {
+    while (word.length > width) {
+      if (current) {
+        lines.push(current);
+        current = '';
+      }
+      lines.push(word.slice(0, width));
+      word = word.slice(width);
+    }
     if (!current) {
-      current = word.length > width ? word.slice(0, width) : word;
+      current = word;
     } else if (current.length + 1 + word.length <= width) {
       current += ' ' + word;
     } else {
       lines.push(current);
-      current = word.length > width ? word.slice(0, width) : word;
+      current = word;
     }
   }
   if (current) lines.push(current);
   return lines;
+}
+
+/**
+ * Formats a label + value (e.g. "Titular:", "Juan Carlos Perez...") so that
+ * if it fits on one line it aligns left/right, and if the value is long it wraps
+ * across multiple lines without cutting off any part of the name.
+ */
+function formatLabelAndValueLines(label: string, value: string, width: number): string[] {
+  const cleanLabel = normalizeThermalText(label).trim();
+  const cleanValue = normalizeThermalText(value).trim();
+  if (!cleanValue) return [cleanLabel];
+
+  if (cleanLabel.length + 1 + cleanValue.length <= width) {
+    const spaces = width - cleanLabel.length - cleanValue.length;
+    return [cleanLabel + ' '.repeat(spaces) + cleanValue];
+  }
+
+  return wrapText(`${cleanLabel} ${cleanValue}`, width);
+}
+
+/**
+ * Formats an item description + price on the right so the full item name is printed
+ * across as many lines as needed without truncating the name.
+ */
+function formatItemWithPriceLines(itemText: string, priceText: string, width: number): string[] {
+  const cleanItem = normalizeThermalText(itemText).trim();
+  const cleanPrice = normalizeThermalText(priceText).trim();
+
+  if (cleanItem.length + 1 + cleanPrice.length <= width) {
+    const spaces = width - cleanItem.length - cleanPrice.length;
+    return [cleanItem + ' '.repeat(spaces) + cleanPrice];
+  }
+
+  const wrapped = wrapText(cleanItem, width);
+  if (wrapped.length === 0) {
+    return [cleanPrice];
+  }
+
+  const lastIdx = wrapped.length - 1;
+  const lastLine = wrapped[lastIdx];
+  if (lastLine.length + 1 + cleanPrice.length <= width) {
+    const spaces = width - lastLine.length - cleanPrice.length;
+    wrapped[lastIdx] = lastLine + ' '.repeat(spaces) + cleanPrice;
+  } else {
+    const spaces = Math.max(0, width - cleanPrice.length);
+    wrapped.push(' '.repeat(spaces) + cleanPrice);
+  }
+
+  return wrapped;
 }
 
 class EscPosBuffer {
@@ -546,6 +603,13 @@ class EscPosBuffer {
     return this;
   }
 
+  lines(items: string[]): this {
+    for (const l of items) {
+      this.line(l);
+    }
+    return this;
+  }
+
   wrappedLines(text: string, width: number): this {
     const lines = wrapText(text, width);
     for (const l of lines) {
@@ -585,103 +649,168 @@ export interface BuildEscPosTicketParams {
   anchoPapel?: '58mm' | '80mm';
 }
 
+export interface ThermalTicketLine {
+  text: string;
+  align: 'left' | 'center';
+  bold?: boolean;
+  size?: 'normal' | 'double-height' | 'double';
+}
+
+export interface ThermalTicketLayout {
+  lines: ThermalTicketLine[];
+  cols: number;
+  paper: '58mm' | '80mm';
+  compact: boolean;
+  tearFeedLines: number;
+}
+
 /**
- * Generates the ESC/POS byte array for a Vianda, Bingo, or General Event Ticket,
- * respecting all `ConfiguracionImpresion` flags and paper width (`58mm` = 32 cols, `80mm` = 48 cols).
+ * Single source of truth that builds the exact formatted thermal lines
+ * used both by the on-screen preview / system print and the ESC/POS Bluetooth printer.
+ * Uses 30 safe columns for 58mm portable printers (and 46 for 80mm) so no character
+ * is ever clipped on the right margin of handheld thermal rolls.
  */
-export function buildEscPosTicket({
+export function buildThermalTicketLines({
   tipo,
   ticketVianda,
   tarjetaBingo,
   ticketEvento,
   config,
   anchoPapel,
-}: BuildEscPosTicketParams): Uint8Array {
+}: BuildEscPosTicketParams): ThermalTicketLayout {
   const imp = {
     ...DEFAULT_IMPRESION_CONFIG,
     ...(config.impresion || {}),
   };
   const paper = anchoPapel || imp.anchoPapel || '58mm';
-  const cols = paper === '80mm' ? 48 : 32;
+  const cols = paper === '80mm' ? 46 : 30;
   const compact = Boolean(imp.modoAhorroPapel);
+  const tearFeedLines = compact ? 6 : 7;
 
   const data =
     tipo === 'vianda' ? ticketVianda : tipo === 'bingo' ? tarjetaBingo : ticketEvento;
   if (!data) {
-    throw new Error('No hay datos del ticket para imprimir.');
+    return { lines: [], cols, paper, compact, tearFeedLines };
   }
 
-  const fechaFormateada =
-    data.fechaFormateada ||
-    (data.fecha
-      ? new Date(data.fecha).toLocaleString('es-AR', {
-          day: '2-digit',
-          month: '2-digit',
-          year: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      : new Date().toLocaleString('es-AR'));
+  const lines: ThermalTicketLine[] = [];
+  const pushLine = (
+    text: string,
+    align: 'left' | 'center' = 'left',
+    bold = false,
+    size: 'normal' | 'double-height' | 'double' = 'normal'
+  ) => {
+    lines.push({
+      text: normalizeThermalText(text),
+      align,
+      bold,
+      size,
+    });
+  };
+
+  const pushWrapped = (
+    text: string,
+    width: number,
+    align: 'left' | 'center' = 'left',
+    bold = false,
+    size: 'normal' | 'double-height' | 'double' = 'normal'
+  ) => {
+    for (const l of wrapText(text, width)) {
+      pushLine(l, align, bold, size);
+    }
+  };
+
+  const pushDivider = (char = '-') => {
+    pushLine(char.repeat(cols), 'left', false, 'normal');
+  };
+
+  const formatSingleLineFechaHora = (
+    isoDate?: string,
+    formattedFallback?: string
+  ): string => {
+    if (isoDate) {
+      const d = new Date(isoDate);
+      if (!isNaN(d.getTime())) {
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const yyyy = d.getFullYear();
+        const hh = String(d.getHours()).padStart(2, '0');
+        const min = String(d.getMinutes()).padStart(2, '0');
+        return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+      }
+    }
+    if (formattedFallback) {
+      return normalizeThermalText(formattedFallback)
+        .replace(/,/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+  };
+
+  const fechaCompacta = formatSingleLineFechaHora(data.fecha, data.fechaFormateada);
 
   const modalidadLabel =
     MODALIDADES_PAGO_LABELS[data.modalidadPago] || String(data.modalidadPago).toUpperCase();
 
-  const buf = new EscPosBuffer().init(compact);
-
   // ---- HEADER ----
-  buf.alignCenter();
-
   if (imp.mostrarLogo) {
-    buf.bold(true).line('[ INA ]').bold(false);
+    pushLine('[ INA ]', 'center', true, 'normal');
   }
 
   if (imp.mostrarEncabezado && config.nombreEvento) {
-    buf.bold(true).sizeDoubleHeight();
-    buf.wrappedLines(config.nombreEvento.toUpperCase(), cols);
-    buf.sizeNormal().bold(false);
+    pushWrapped(config.nombreEvento.toUpperCase(), cols, 'center', true, 'double-height');
   }
 
   if (imp.mostrarSubtitulo && config.subtitulo) {
-    buf.wrappedLines(config.subtitulo, cols);
+    pushWrapped(config.subtitulo, cols, 'center', false, 'normal');
   }
 
   if (imp.mostrarLugar && config.lugar) {
-    buf.wrappedLines(config.lugar, cols);
+    pushWrapped(config.lugar, cols, 'center', false, 'normal');
   }
 
-  // Ticket Badge
   const ticketTitle = `TICKET Nro ${data.numeroTicket || ''}`;
-
-  buf.bold(true).line(ticketTitle).bold(false);
-  buf.divider(cols, '-');
+  pushWrapped(ticketTitle, cols, 'center', true, 'normal');
+  pushDivider('-');
 
   // ---- CUSTOMER & SALE INFO ----
-  buf.alignLeft();
-
   if (imp.mostrarFechaHora) {
-    buf.line(formatRow('Fecha/Hora:', fechaFormateada, cols));
+    pushLine(formatRow('Fecha:', fechaCompacta, cols), 'left', false, 'normal');
   }
 
-  buf.bold(true).line(formatRow('Titular:', data.comprador || 'Al Portador', cols)).bold(false);
+  for (const l of formatLabelAndValueLines('Titular:', data.comprador || 'Al Portador', cols)) {
+    pushLine(l, 'left', true, 'normal');
+  }
 
   if (imp.mostrarTelefono && data.telefono) {
-    buf.line(formatRow('Telefono:', data.telefono, cols));
+    for (const l of formatLabelAndValueLines('Telefono:', data.telefono, cols)) {
+      pushLine(l, 'left', false, 'normal');
+    }
   }
 
   if (imp.mostrarModalidadPago) {
-    buf.line(formatRow('Pago:', modalidadLabel.toUpperCase(), cols));
+    for (const l of formatLabelAndValueLines('Pago:', modalidadLabel.toUpperCase(), cols)) {
+      pushLine(l, 'left', false, 'normal');
+    }
   }
 
   if (data.notas) {
-    buf.wrappedLines(`Nota: ${data.notas}`, cols);
+    pushWrapped(`Nota: ${data.notas}`, cols, 'left', false, 'normal');
   }
 
-  buf.divider(cols, '-');
+  pushDivider('-');
 
   // ---- ITEMS / BINGO CARDS / TICKETS ----
   if (tipo === 'vianda' && ticketVianda) {
     if (!compact) {
-      buf.bold(true).line(formatRow('CANT / DETALLE', 'SUBTOTAL', cols)).bold(false);
+      pushLine(formatRow('CANT / DETALLE', 'SUBTOTAL', cols), 'left', true, 'normal');
     }
 
     for (const item of ticketVianda.items) {
@@ -689,19 +818,21 @@ export function buildEscPosTicket({
       const tag = item.etiquetaPrecio ? ` (${item.etiquetaPrecio})` : '';
       const itemLabel = `${item.cantidad}x ${nombreImpreso}${tag}`;
       const priceLabel = formatPrecio(item.subtotal);
-      buf.line(formatRow(itemLabel, priceLabel, cols));
+      for (const l of formatItemWithPriceLines(itemLabel, priceLabel, cols)) {
+        pushLine(l, 'left', false, 'normal');
+      }
     }
 
-    buf.divider(cols, '=');
-    buf
-      .bold(true)
-      .sizeDoubleHeight()
-      .line(formatRow('TOTAL:', formatPrecio(ticketVianda.total), cols))
-      .sizeNormal()
-      .bold(false);
+    pushDivider('=');
+    pushLine(
+      formatRow('TOTAL:', formatPrecio(ticketVianda.total), cols),
+      'left',
+      true,
+      'double-height'
+    );
   } else if (tipo === 'ticket' && ticketEvento) {
     if (!compact) {
-      buf.bold(true).line(formatRow('CANT / TICKET', 'SUBTOTAL', cols)).bold(false);
+      pushLine(formatRow('CANT / TICKET', 'SUBTOTAL', cols), 'left', true, 'normal');
     }
 
     for (const item of ticketEvento.items) {
@@ -709,16 +840,18 @@ export function buildEscPosTicket({
       const tag = item.etiquetaPrecio ? ` (${item.etiquetaPrecio})` : '';
       const itemLabel = `${item.cantidad}x ${nombreImpreso}${tag}`;
       const priceLabel = formatPrecio(item.subtotal);
-      buf.line(formatRow(itemLabel, priceLabel, cols));
+      for (const l of formatItemWithPriceLines(itemLabel, priceLabel, cols)) {
+        pushLine(l, 'left', false, 'normal');
+      }
     }
 
-    buf.divider(cols, '=');
-    buf
-      .bold(true)
-      .sizeDoubleHeight()
-      .line(formatRow('TOTAL:', formatPrecio(ticketEvento.total), cols))
-      .sizeNormal()
-      .bold(false);
+    pushDivider('=');
+    pushLine(
+      formatRow('TOTAL:', formatPrecio(ticketEvento.total), cols),
+      'left',
+      true,
+      'double-height'
+    );
   } else if (tipo === 'bingo' && tarjetaBingo) {
     const tarjetasList =
       tarjetaBingo.numerosTarjetas && tarjetaBingo.numerosTarjetas.length > 0
@@ -731,75 +864,129 @@ export function buildEscPosTicket({
       ''
     ).toUpperCase();
 
-    buf.alignCenter();
-    buf
-      .bold(true)
-      .line(
-        bingoNombreImpreso
-          ? tarjetasList.length === 1
-            ? bingoNombreImpreso
-            : `${bingoNombreImpreso} (${tarjetasList.length})`
-          : tarjetasList.length === 1
-          ? 'TARJETA DE BINGO Nro'
-          : `TARJETAS ASIGNADAS (${tarjetasList.length})`
-      );
+    pushWrapped(
+      bingoNombreImpreso
+        ? tarjetasList.length === 1
+          ? bingoNombreImpreso
+          : `${bingoNombreImpreso} (${tarjetasList.length})`
+        : tarjetasList.length === 1
+        ? 'TARJETA DE BINGO Nro'
+        : `TARJETAS ASIGNADAS (${tarjetasList.length})`,
+      cols,
+      'center',
+      true,
+      'normal'
+    );
 
     const numsFormatted = tarjetasList
       .map((n) => `#${String(n).padStart(3, '0')}`)
       .join('  ');
-    buf.sizeDouble().wrappedLines(numsFormatted, Math.floor(cols / 2)).sizeNormal().bold(false);
+    pushWrapped(numsFormatted, Math.floor(cols / 2), 'center', true, 'double');
 
-    buf.alignLeft();
     if (!compact && tarjetaBingo.etiquetaPrecio) {
-      buf.line(formatRow('Tarifa:', tarjetaBingo.etiquetaPrecio, cols));
+      for (const l of formatLabelAndValueLines('Tarifa:', tarjetaBingo.etiquetaPrecio, cols)) {
+        pushLine(l, 'left', false, 'normal');
+      }
     }
     if (tarjetasList.length > 1 && tarjetaBingo.precioUnitario) {
-      buf.line(
-        formatRow(
-          'Detalle:',
-          `${tarjetasList.length} x ${formatPrecio(tarjetaBingo.precioUnitario)}`,
-          cols
-        )
-      );
+      for (const l of formatLabelAndValueLines(
+        'Detalle:',
+        `${tarjetasList.length} x ${formatPrecio(tarjetaBingo.precioUnitario)}`,
+        cols
+      )) {
+        pushLine(l, 'left', false, 'normal');
+      }
     }
 
-    buf.divider(cols, '=');
-    buf
-      .bold(true)
-      .sizeDoubleHeight()
-      .line(formatRow('TOTAL:', formatPrecio(tarjetaBingo.precioCobrado), cols))
-      .sizeNormal()
-      .bold(false);
+    pushDivider('=');
+    pushLine(
+      formatRow('TOTAL:', formatPrecio(tarjetaBingo.precioCobrado), cols),
+      'left',
+      true,
+      'double-height'
+    );
   }
 
   // ---- PAYMENT STATUS ----
   if (imp.mostrarEstadoPago) {
-    buf.divider(cols, '-');
-    buf.alignCenter().bold(true);
-    buf.line(
+    pushDivider('-');
+    pushLine(
       data.estadoPago === 'pagado'
         ? '[ ESTADO: PAGADO ]'
         : data.estadoPago === 'anulado'
         ? '[ ESTADO: ANULADO ]'
-        : '[ ESTADO: PENDIENTE DE PAGO ]'
+        : '[ ESTADO: PENDIENTE DE PAGO ]',
+      'center',
+      true,
+      'normal'
     );
-    buf.bold(false);
   }
 
   // ---- SIMULATED BARCODE / TICKET CODE ----
   if (imp.mostrarCodigoBarras && data.numeroTicket) {
-    buf.alignCenter().line(`||| || ||| | |||| |||`);
-    buf.line(data.numeroTicket);
+    pushLine('||| || ||| | |||| |||', 'center', false, 'normal');
+    pushLine(data.numeroTicket, 'center', false, 'normal');
   }
 
   // ---- FOOTER MESSAGE ----
   if (imp.mostrarMensajePie && config.mensajeTicket) {
-    if (!compact) buf.feed(1);
-    buf.alignCenter().wrappedLines(config.mensajeTicket, cols);
+    if (!compact) {
+      pushLine('', 'center', false, 'normal');
+    }
+    pushWrapped(config.mensajeTicket, cols, 'center', false, 'normal');
   }
 
-  // Feed extra lines so paper clears the thermal head tear bar
-  buf.feed(compact ? 3 : 4);
+  return { lines, cols, paper, compact, tearFeedLines };
+}
+
+/**
+ * Generates the ESC/POS byte array for a Vianda, Bingo, or General Event Ticket,
+ * using the exact same lines as `buildThermalTicketLines` so the preview and printout
+ * are 100% identical, plus extra bottom feed space for easy tearing.
+ */
+export function buildEscPosTicket(params: BuildEscPosTicketParams): Uint8Array {
+  const { lines, compact, tearFeedLines } = buildThermalTicketLines(params);
+  if (lines.length === 0) {
+    throw new Error('No hay datos del ticket para imprimir.');
+  }
+
+  const buf = new EscPosBuffer().init(compact);
+  let currentAlign: 'left' | 'center' | null = null;
+  let currentBold = false;
+  let currentSize: 'normal' | 'double-height' | 'double' = 'normal';
+
+  for (const item of lines) {
+    if (item.align !== currentAlign) {
+      if (item.align === 'center') buf.alignCenter();
+      else buf.alignLeft();
+      currentAlign = item.align;
+    }
+
+    const wantBold = Boolean(item.bold);
+    if (wantBold !== currentBold) {
+      buf.bold(wantBold);
+      currentBold = wantBold;
+    }
+
+    const wantSize = item.size || 'normal';
+    if (wantSize !== currentSize) {
+      if (wantSize === 'double') buf.sizeDouble();
+      else if (wantSize === 'double-height') buf.sizeDoubleHeight();
+      else buf.sizeNormal();
+      currentSize = wantSize;
+    }
+
+    buf.line(item.text);
+  }
+
+  // Reset style before feeding extra tear-off space
+  buf.sizeNormal().bold(false).alignLeft();
+
+  // Feed extra blank lines with space + LF so all portable 58mm thermal printers
+  // physically advance the paper well past the serrated tear bar for easy tearing
+  for (let i = 0; i < tearFeedLines; i++) {
+    buf.line(' ');
+  }
   buf.cut();
 
   return buf.toUint8Array();
@@ -825,8 +1012,9 @@ export async function printTestTicketBluetooth(
   anchoPapel: '58mm' | '80mm' = '58mm'
 ): Promise<{ printerName: string }> {
   const printerName = await connectBluetoothPrinter(false);
-  const cols = anchoPapel === '80mm' ? 48 : 32;
+  const cols = anchoPapel === '80mm' ? 46 : 30;
   const compact = Boolean(config.impresion?.modoAhorroPapel);
+  const tearFeedLines = compact ? 6 : 7;
 
   const buf = new EscPosBuffer().init(compact);
   buf
@@ -835,14 +1023,14 @@ export async function printTestTicketBluetooth(
     .sizeDoubleHeight()
     .line('PRUEBA BLUETOOTH')
     .sizeNormal()
-    .line(config.nombreEvento || 'EVENTOS INA')
+    .wrappedLines(config.nombreEvento || 'EVENTOS INA', cols)
     .bold(false)
     .divider(cols, '-')
     .alignLeft()
-    .line(formatRow('Impresora:', printerName, cols))
-    .line(formatRow('Ancho Papel:', `${anchoPapel} (${cols} cols)`, cols))
-    .line(
-      formatRow(
+    .lines(formatLabelAndValueLines('Impresora:', printerName, cols))
+    .lines(formatLabelAndValueLines('Ancho Papel:', `${anchoPapel} (${cols} cols)`, cols))
+    .lines(
+      formatLabelAndValueLines(
         'Modo Ahorro:',
         compact ? 'Activado (Compacto)' : 'Normal',
         cols
@@ -856,8 +1044,12 @@ export async function printTestTicketBluetooth(
     .divider(cols, '-')
     .alignCenter()
     .line('Impresion termica directa OK!')
-    .feed(compact ? 3 : 4)
-    .cut();
+    .alignLeft();
+
+  for (let i = 0; i < tearFeedLines; i++) {
+    buf.line(' ');
+  }
+  buf.cut();
 
   await sendBytesToPrinter(buf.toUint8Array());
   return { printerName };

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import confetti from 'canvas-confetti';
 import {
   Settings,
   RotateCcw,
@@ -16,6 +17,11 @@ import {
   LayoutGrid,
   Sparkles,
   Table,
+  QrCode,
+  Copy,
+  ExternalLink,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { saveBingoGameState, getBingoGameState } from '../lib/storage';
 import { initializeFirebase } from '../lib/firebase';
@@ -148,14 +154,58 @@ export const BingoGame2: React.FC<BingoGame2Props> = () => {
   const [drawSpeed, setDrawSpeed] = useState(80);
   const [totalFlashes, setTotalFlashes] = useState(30);
   const [gameStarted, setGameStarted] = useState(false);
+  const [showStartAnimation, setShowStartAnimation] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastFiveNumbers, setLastFiveNumbers] = useState<number[]>([]);
   const [showCartillaModal, setShowCartillaModal] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [copiedQrLink, setCopiedQrLink] = useState(false);
   const [cartillaPattern, setCartillaPattern] = useState<Set<string>>(
     () => new Set(['0-2', '1-2', '2-2', '3-2', '4-2'])
   );
   const [patternName, setPatternName] = useState('Línea Horizontal');
 
+  const TRANSMISION_QR_URL = 'https://ina-sjl.vercel.app/system/transmision';
+
+  const boardRootRef = useRef<HTMLDivElement | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startAnimTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevGameStartedRef = useRef<boolean>(false);
+
+  // Sync fullscreen state when user presses ESC in browser fullscreen
+  useEffect(() => {
+    const handleFsChange = () => {
+      if (!document.fullscreenElement) {
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    if (!isFullscreen) {
+      setIsFullscreen(true);
+      try {
+        if (boardRootRef.current?.requestFullscreen) {
+          await boardRootRef.current.requestFullscreen();
+        } else if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch {
+        // Fallback to CSS fixed fullscreen if native requestFullscreen is blocked
+      }
+    } else {
+      setIsFullscreen(false);
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+      } catch {
+        // Ignore
+      }
+    }
+  };
   const drawnSet = new Set(drawnNumbers);
   const remaining = Array.from({ length: 75 }, (_, i) => i + 1).filter(n => !drawnSet.has(n));
 
@@ -166,6 +216,7 @@ export const BingoGame2: React.FC<BingoGame2Props> = () => {
         setDrawnNumbers(state.numerosSalidos);
         setCurrentNumber(state.ultimoNumero);
         setGameStarted(true);
+        prevGameStartedRef.current = true;
         setLastFiveNumbers(state.numerosSalidos.slice(-5).reverse());
       }
       const activeFigura = state.figura || 'Línea Horizontal';
@@ -267,15 +318,48 @@ export const BingoGame2: React.FC<BingoGame2Props> = () => {
     });
   }, [patternName, cartillaPattern]);
 
-  // Draw with lottery effect
+  const startBallDrawSequence = useCallback(
+    (capturedRemaining: number[], currentDrawn: number[]) => {
+      let count = 0;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+
+      intervalRef.current = setInterval(() => {
+        const randNum =
+          capturedRemaining[Math.floor(Math.random() * capturedRemaining.length)];
+        setFlashNum(randNum);
+        count++;
+
+        if (count >= totalFlashes) {
+          clearInterval(intervalRef.current!);
+          const winner =
+            capturedRemaining[Math.floor(Math.random() * capturedRemaining.length)];
+          setFlashNum(null);
+          setCurrentNumber(winner);
+          const newDrawn = [...currentDrawn, winner];
+          setDrawnNumbers(newDrawn);
+          setLastFiveNumbers(newDrawn.slice(-5).reverse());
+          persistState(newDrawn, winner);
+          setIsDrawing(false);
+        }
+      }, drawSpeed);
+    },
+    [drawSpeed, totalFlashes, persistState]
+  );
+
+  // Draw with lottery effect (waits for the start animation to finish on the 1st ball)
   const handleNext = () => {
     if (isDrawing || remaining.length === 0) return;
+    const isFirstBall = !gameStarted && drawnNumbers.length === 0;
+    const capturedRemaining = [...remaining];
+    const currentDrawn = [...drawnNumbers];
+
+    prevGameStartedRef.current = true;
     setIsDrawing(true);
     setGameStarted(true);
 
-    // When starting the game or drawing, immediately persist the game state and figure to the database
+    // Immediately persist that the game has started so Transmision also triggers its start animation
     saveBingoGameState({
-      numerosSalidos: drawnNumbers,
+      numerosSalidos: currentDrawn,
       ultimoNumero: currentNumber,
       enSorteo: true,
       juegoIniciado: true,
@@ -284,30 +368,40 @@ export const BingoGame2: React.FC<BingoGame2Props> = () => {
       patronFigura: Array.from(cartillaPattern),
     });
 
-    let count = 0;
-    const capturedRemaining = [...remaining];
-
-    intervalRef.current = setInterval(() => {
-      const randNum = capturedRemaining[Math.floor(Math.random() * capturedRemaining.length)];
-      setFlashNum(randNum);
-      count++;
-
-      if (count >= totalFlashes) {
-        clearInterval(intervalRef.current!);
-        const winner = capturedRemaining[Math.floor(Math.random() * capturedRemaining.length)];
-        setFlashNum(null);
-        setCurrentNumber(winner);
-        const newDrawn = [...drawnNumbers, winner];
-        setDrawnNumbers(newDrawn);
-        setLastFiveNumbers(newDrawn.slice(-5).reverse());
-        persistState(newDrawn, winner);
-        setIsDrawing(false);
+    if (isFirstBall) {
+      setShowStartAnimation(true);
+      try {
+        confetti({
+          particleCount: 85,
+          spread: 80,
+          origin: { y: 0.55 },
+          colors: ['#fbbf24', '#3b82f6', '#ef4444', '#22c55e', '#a855f7'],
+        });
+      } catch {
+        // Ignore confetti errors
       }
-    }, drawSpeed);
+      if (startAnimTimeoutRef.current) clearTimeout(startAnimTimeoutRef.current);
+      startAnimTimeoutRef.current = setTimeout(() => {
+        setShowStartAnimation(false);
+        startBallDrawSequence(capturedRemaining, currentDrawn);
+      }, 3000);
+    } else {
+      startBallDrawSequence(capturedRemaining, currentDrawn);
+    }
+  };
+
+  const handleDismissStartAnimEarly = () => {
+    if (!showStartAnimation) return;
+    if (startAnimTimeoutRef.current) clearTimeout(startAnimTimeoutRef.current);
+    setShowStartAnimation(false);
+    startBallDrawSequence([...remaining], [...drawnNumbers]);
   };
 
   const handleReset = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
+    if (startAnimTimeoutRef.current) clearTimeout(startAnimTimeoutRef.current);
+    setShowStartAnimation(false);
+    prevGameStartedRef.current = false;
     setDrawnNumbers([]);
     setCurrentNumber(null);
     setIsDrawing(false);
@@ -332,15 +426,34 @@ export const BingoGame2: React.FC<BingoGame2Props> = () => {
   const last5Slots = Array.from({ length: 3 }, (_, i) => lastFiveNumbers[i + 1] ?? null);
 
   return (
-    <div style={{
-      height: '100%',
-      minHeight: '100%',
-      flex: 1,
-      background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 30%, #0369a1 60%, #075985 100%)',
-      fontFamily: "'Inter', 'Segoe UI', sans-serif",
-      display: 'flex', flexDirection: 'column', padding: '8px', gap: '8px',
-      boxSizing: 'border-box', position: 'relative', overflowX: 'hidden', overflowY: 'auto',
-    }}>
+    <div
+      ref={boardRootRef}
+      style={{
+        ...(isFullscreen
+          ? {
+              position: 'fixed',
+              inset: 0,
+              zIndex: 900,
+              width: '100vw',
+              height: '100vh',
+            }
+          : {
+              height: '100%',
+              minHeight: '100%',
+              flex: 1,
+              position: 'relative',
+            }),
+        background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 30%, #0369a1 60%, #075985 100%)',
+        fontFamily: "'Inter', 'Segoe UI', sans-serif",
+        display: 'flex',
+        flexDirection: 'column',
+        padding: '8px',
+        gap: '8px',
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
+        overflowY: 'auto',
+      }}
+    >
       {/* Decorative wave SVG */}
       <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', opacity: 0.12 }} viewBox="0 0 1000 600" preserveAspectRatio="none">
         <path d="M0,200 Q250,100 500,200 T1000,200" stroke="#fbbf24" strokeWidth="4" fill="none" />
@@ -511,10 +624,55 @@ export const BingoGame2: React.FC<BingoGame2Props> = () => {
 
           </button>
           <button id="btn-history" onClick={() => setShowHistory(true)} title="Historial" style={iconBtnStyle}><History size={18} /></button>
+          <button
+            id="btn-qr-transmision"
+            type="button"
+            onClick={() => setShowQrModal(true)}
+            title="Mostrar Código QR de Transmisión en Vivo"
+            style={{
+              ...iconBtnStyle,
+              background: 'linear-gradient(135deg, #fbbf24, #d97706)',
+              borderColor: 'rgba(255,255,255,0.5)',
+              color: '#0f172a',
+              boxShadow: '0 2px 10px rgba(251,191,36,0.35)',
+            }}
+          >
+            <QrCode size={18} />
+          </button>
           <a href="/system/transmision" target="_blank" rel="noopener noreferrer" title="Módulo de Transmisión en Vivo"
             style={{ ...iconBtnStyle, background: 'linear-gradient(135deg, #ef4444, #dc2626)', textDecoration: 'none' }}>
             <Radio size={18} />
           </a>
+          <button
+            id="btn-fullscreen"
+            type="button"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Salir de Pantalla Completa' : 'Ver Tablero en Pantalla Completa'}
+            style={{
+              ...iconBtnStyle,
+              ...(isFullscreen
+                ? {
+                    width: 'auto',
+                    padding: '0 12px',
+                    gap: 6,
+                    background: 'rgba(15, 23, 42, 0.75)',
+                    borderColor: '#fbbf24',
+                    color: '#fbbf24',
+                    fontWeight: 800,
+                    fontSize: 12,
+                  }
+                : {}),
+            }}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 size={17} />
+                <span>Salir Pantalla Completa</span>
+              </>
+            ) : (
+              <Maximize2 size={18} />
+            )}
+          </button>
           <button id="btn-reset" onClick={() => setShowResetConfirm(true)} title="Reiniciar"
             style={{ ...iconBtnStyle, background: 'rgba(239,68,68,0.2)', borderColor: 'rgba(239,68,68,0.4)', color: '#fca5a5' }}>
             <RotateCcw size={18} />
@@ -761,10 +919,134 @@ export const BingoGame2: React.FC<BingoGame2Props> = () => {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
+        @keyframes bingo2-start-overlay {
+          0% { opacity: 0; transform: scale(0.75); }
+          15% { opacity: 1; transform: scale(1.04); }
+          25% { opacity: 1; transform: scale(1); }
+          82% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0; transform: scale(1.08); }
+        }
+        @keyframes bingo2-ball-bounce {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-10px) scale(1.08); }
+        }
         #btn-siguiente:not(:disabled):hover { opacity: 0.9; transform: scale(1.02); }
         #btn-bingo:not(:disabled):hover { opacity: 0.9; transform: scale(1.02); }
         #btn-settings:hover, #btn-history:hover, #btn-reset:hover { opacity: 0.85; transform: scale(1.08); }
       `}</style>
+
+      {/* ── BINGO STARTED CELEBRATION OVERLAY ─────────────────────────────── */}
+      {showStartAnimation && (
+        <div
+          onClick={handleDismissStartAnimEarly}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 950,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'radial-gradient(circle, rgba(15,23,42,0.72) 0%, rgba(2,6,23,0.88) 100%)',
+            backdropFilter: 'blur(6px)',
+            padding: 16,
+            cursor: 'pointer',
+          }}
+        >
+          <div
+            style={{
+              animation: 'bingo2-start-overlay 3s cubic-bezier(0.22, 1, 0.36, 1) forwards',
+              background: 'linear-gradient(135deg, #0c4a6e 0%, #0369a1 50%, #1e3a8a 100%)',
+              border: '3px solid #fbbf24',
+              borderRadius: 28,
+              padding: '28px 36px',
+              maxWidth: 520,
+              width: '100%',
+              textAlign: 'center',
+              boxShadow: '0 0 60px rgba(251, 191, 36, 0.55), 0 25px 60px rgba(0, 0, 0, 0.7)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 16,
+            }}
+          >
+            {/* Bouncing B-I-N-G-O Spheres */}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              {BINGO_LETTERS.map((letter, idx) => {
+                const colors = LETTER_COLORS[letter];
+                return (
+                  <div
+                    key={letter}
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: '50%',
+                      background: `radial-gradient(circle at 35% 30%, ${colors.text}, ${colors.bg} 55%, ${colors.dark})`,
+                      border: '2.5px solid #ffffff',
+                      boxShadow: `0 6px 16px ${colors.bg}90`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 900,
+                      fontSize: 22,
+                      color: '#0f172a',
+                      animation: `bingo2-ball-bounce 0.7s ease-in-out ${idx * 0.1}s infinite`,
+                    }}
+                  >
+                    {letter}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 14px',
+                borderRadius: 999,
+                background: 'rgba(251, 191, 36, 0.2)',
+                border: '1px solid rgba(251, 191, 36, 0.5)',
+                color: '#fde68a',
+                fontSize: 12,
+                fontWeight: 900,
+                letterSpacing: 1.5,
+                textTransform: 'uppercase',
+              }}
+            >
+              <Sparkles size={14} /> Sorteo Oficial en Curso
+            </div>
+
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 'clamp(26px, 4.5vw, 38px)',
+                fontWeight: 900,
+                color: '#ffffff',
+                letterSpacing: 0.5,
+                lineHeight: 1.15,
+                textShadow: '0 4px 16px rgba(0,0,0,0.5)',
+              }}
+            >
+              ¡EL BINGO HA INICIADO!
+            </h2>
+
+            <div
+              style={{
+                padding: '8px 18px',
+                borderRadius: 14,
+                background: 'rgba(15, 23, 42, 0.55)',
+                border: '1px solid rgba(251, 191, 36, 0.4)',
+                color: '#fbbf24',
+                fontSize: 14,
+                fontWeight: 800,
+              }}
+            >
+              🎯 Figura a formar: <span style={{ color: '#ffffff' }}>{patternName}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── SETTINGS MODAL ─────────────────────────────────────────────────── */}
       {showSettings && (
@@ -1070,6 +1352,114 @@ export const BingoGame2: React.FC<BingoGame2Props> = () => {
               >
                 <Check size={16} /> Guardar Figura
               </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── QR CODE TRANSMISIÓN MODAL ─────────────────────────────────────── */}
+      {showQrModal && (
+        <Modal
+          onClose={() => {
+            setShowQrModal(false);
+            setCopiedQrLink(false);
+          }}
+          title="📱 Código QR — Transmisión en Vivo"
+          maxWidth={440}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.85)', lineHeight: 1.4 }}>
+              Escanea este código QR con la cámara de tu celular para seguir el sorteo del Bingo en tiempo real:
+            </p>
+
+            {/* White QR Container */}
+            <div
+              style={{
+                background: '#ffffff',
+                padding: 18,
+                borderRadius: 20,
+                border: '4px solid #fbbf24',
+                boxShadow: '0 12px 35px rgba(0,0,0,0.45)',
+                display: 'inline-flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=8&data=${encodeURIComponent(
+                  TRANSMISION_QR_URL
+                )}`}
+                alt="Código QR Transmisión Bingo en Vivo"
+                width={260}
+                height={260}
+                style={{ display: 'block', borderRadius: 8 }}
+              />
+            </div>
+
+            {/* Link Box */}
+            <div
+              style={{
+                width: '100%',
+                background: 'rgba(15, 23, 42, 0.55)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 12,
+                padding: '10px 12px',
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#fde68a',
+                wordBreak: 'break-all',
+                fontFamily: 'monospace',
+              }}
+            >
+              {TRANSMISION_QR_URL}
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, width: '100%' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(TRANSMISION_QR_URL);
+                  setCopiedQrLink(true);
+                  setTimeout(() => setCopiedQrLink(false), 2500);
+                }}
+                style={{
+                  ...secondaryBtnStyle,
+                  padding: '10px 12px',
+                  fontSize: 13,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                {copiedQrLink ? (
+                  <>
+                    <Check size={16} style={{ color: '#4ade80' }} /> ¡Copiado!
+                  </>
+                ) : (
+                  <>
+                    <Copy size={16} /> Copiar Link
+                  </>
+                )}
+              </button>
+
+              <a
+                href={TRANSMISION_QR_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  ...primaryBtnStyle,
+                  padding: '10px 12px',
+                  fontSize: 13,
+                  justifyContent: 'center',
+                  textDecoration: 'none',
+                }}
+              >
+                <ExternalLink size={16} /> Abrir Link
+              </a>
             </div>
           </div>
         </Modal>
